@@ -1,0 +1,18 @@
+MODELS_CHEAP = [
+    "meta-llama/llama-3.2-1b-instruct",
+    "meta-llama/llama-3.2-3b-instruct",
+    "meta-llama/llama-3.1-8b-instruct",
+    "qwen/qwen-2.5-7b-instruct",
+    "mistralai/mistral-7b-instruct",
+    "google/gemma-2-9b-it",
+    "mistralai/mistral-nemo",
+    "google/gemini-flash-1.5-8b",
+    "deepseek/deepseek-r1-distill-llama-8b",
+    "google/gemini-flash-1.5",
+    "google/gemini-2.0-flash-lite-001",
+    "google/gemini-2.0-flash-001",
+    "meta-llama/llama-3.3-70b-instruct",
+    "qwen/qwq-32b",
+    "qwen/qwen-2.5-72b-instruct",
+    "gpt-4o-mini",
+]
