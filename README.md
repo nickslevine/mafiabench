@@ -6,5 +6,6 @@ TODO:
 
 - check summaries are working
 - implement tournament. 
-    - check doubling of logging. 
+    - "round 2 pairings" -> round increments? 
     - interactive logging
+    - check logic. 

@@ -1,5 +1,6 @@
 import math
 from typing import Dict, List, Tuple
+from loguru import logger
 
 DEFAULT_K_FACTOR = 32
 DEFAULT_RATING = 1500
@@ -142,20 +143,20 @@ if __name__ == "__main__":
     models = ["ModelAlpha", "ModelBeta", "ModelGamma"]
     elo_system = ELOSystem(models, k_factor=32)
 
-    print("Initial Ratings:", elo_system.get_all_ratings())
+    logger.info("Initial Ratings:", elo_system.get_all_ratings())
 
     # Simulate some games
     # Alpha beats Beta
     elo_system.record_game("ModelAlpha", "ModelBeta", 1.0)
-    print("\nAfter Alpha beats Beta:", elo_system.get_all_ratings())
+    logger.info("\nAfter Alpha beats Beta:", elo_system.get_all_ratings())
 
     # Gamma draws with Alpha
     elo_system.record_game("ModelGamma", "ModelAlpha", 0.5)
-    print("\nAfter Gamma draws Alpha:", elo_system.get_all_ratings())
+    logger.info("\nAfter Gamma draws Alpha:", elo_system.get_all_ratings())
 
     # Beta beats Gamma
     elo_system.record_game("ModelBeta", "ModelGamma", 1.0)
-    print("\nAfter Beta beats Gamma:", elo_system.get_all_ratings())
+    logger.info("\nAfter Beta beats Gamma:", elo_system.get_all_ratings())
 
     # Batch update example
     batch_results = [
@@ -165,6 +166,6 @@ if __name__ == "__main__":
     ]
     # Reset ratings for batch example
     elo_system = ELOSystem(models, k_factor=32)
-    print("\nInitial Ratings (for batch):", elo_system.get_all_ratings())
+    logger.info("\nInitial Ratings (for batch):", elo_system.get_all_ratings())
     elo_system.record_batch_games(batch_results)
-    print("After batch update:", elo_system.get_all_ratings())
+    logger.info("After batch update:", elo_system.get_all_ratings())

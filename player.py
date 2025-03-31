@@ -87,7 +87,7 @@ class Player:
                 self.total_response_time += time.time() - start_time
                 self.message_count += 1
                 if len(response.choices) == 0:
-                    print(f"Failed response: {response}")
+                    logger.error(f"Failed response: {response}")
                 content = response.choices[0].message.content
                 return content.strip() if content else ""
             except Exception as e:

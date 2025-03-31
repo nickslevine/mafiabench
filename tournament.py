@@ -425,15 +425,15 @@ async def main() -> None:
 
     final_rankings = await tournament.run_tournament()
 
-    print("Final Rankings:")
-    print(final_rankings)
+    logger.info("Final Rankings:")
+    logger.info(final_rankings)
 
-    print("\nFinal ELO Ratings:")
-    print(tournament.get_final_ratings())
-    print("\nELO Rating History:")
-    print(tournament.get_rating_history())
-    print("\nStability Stats (Rank Corr per round):")
-    print(tournament.stability_stats)
+    logger.info("\nFinal ELO Ratings:")
+    logger.info(tournament.get_final_ratings())
+    logger.info("\nELO Rating History:")
+    logger.info(tournament.get_rating_history())
+    logger.info("\nStability Stats (Rank Corr per round):")
+    logger.info(tournament.stability_stats)
 
 
 if __name__ == "__main__":

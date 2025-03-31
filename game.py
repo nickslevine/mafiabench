@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 from loguru import logger
+import sys
 import time
 from collections import Counter
 from mafia import (
@@ -34,6 +35,7 @@ class Game:
         temperature: float = 0.7,
         limiter_requests_per_second: float = 60.0,
         game_id: int | None = None,
+        verbose: bool = False,
     ):
         if len(player_names) < n_players:
             raise ValueError(
@@ -56,6 +58,11 @@ class Game:
         self.start_time = None
         self.end_time = None
         self.validate()
+
+        # Configure logging level based on verbosity
+        logger.remove()  # Remove default handler
+        log_level = "INFO" if verbose else "WARNING"
+        logger.add(sys.stderr, level=log_level)
 
         self.initialize_players()
 
@@ -90,7 +97,7 @@ class Game:
                 model = self.model_townsperson
             self.players[name] = Player(name, role, model, self.temperature)
 
-        print(self.players)
+        # print(self.players)
 
     def next_phase(self):
         self.phase = self.phase.next()
@@ -359,7 +366,7 @@ class Game:
         )
         self.event_log.add(evt)
 
-        print(evt)
+        # print(evt)
 
         await self.update_knowledge_bases(Phase.DAY, str(evt))
 
@@ -502,7 +509,7 @@ class Game:
         os.makedirs("results", exist_ok=True)
         os.makedirs("logs", exist_ok=True)
 
-        print(f"Game over. Results: {stats.to_dict()}")
+        # print(f"Game over. Results: {stats.to_dict()}")
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
