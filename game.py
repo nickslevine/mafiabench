@@ -1,6 +1,6 @@
 import asyncio
 import datetime
-import logging
+from loguru import logger
 import time
 from collections import Counter
 from mafia import (
@@ -30,41 +30,28 @@ class Game:
         n_mafia: int,
         model_mafia: str,
         model_townsperson: str,
-        player_names: list[str],
+        player_names: list[PlayerName],
         temperature: float = 0.7,
         limiter_requests_per_second: float = 60.0,
-        game_id=None,
+        game_id: int | None = None,
     ):
-        # Set up logger
-        self.logger = logging.getLogger(
-            __name__ + (f"_{game_id}" if str(game_id) else "")
-        )
-        self.logger.setLevel(logging.INFO)
-        if not self.logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            )
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
-
         if len(player_names) < n_players:
             raise ValueError(
                 f"Not enough player names provided. "
                 f"Must provide at least {n_players} player names"
             )
 
-        self.phase = Phase.INTRO
-        self.players = {}
+        self.phase: Phase = Phase.INTRO
+        self.players: dict[PlayerName, Player] = {}
         self.n_players = n_players
         self.n_mafia = n_mafia
         self.model_mafia = model_mafia
         self.model_townsperson = model_townsperson
         self.temperature = temperature
-        self.player_names = player_names[0 : self.n_players]
+        self.player_names: list[PlayerName] = player_names[0 : self.n_players]
         self.day_count = 0
         self.event_log: EventLog = EventLog()
-        self.game_id = game_id
+        self.game_id: int | None = game_id
 
         self.start_time = None
         self.end_time = None
@@ -159,7 +146,7 @@ class Game:
         ]
 
     async def run_phase(self):
-        self.logger.info(f"Running phase: {self.phase} on day {self.day_count}")
+        logger.info(f"Running phase: {self.phase} on day {self.day_count}")
         if self.phase == Phase.DAY:
             await self.run_day()
         elif self.phase == Phase.NIGHT:
@@ -222,10 +209,10 @@ class Game:
 
         for player in players_to_update:
             p: Player = self.players[player]
-            summary_tasks.append(
-                self.get_and_update_player_summary(p, phase, phase_context)
+            summary_tasks.append(  # type: ignore
+                self.get_and_update_player_summary(p, phase, phase_context)  # type: ignore
             )
-        await asyncio.gather(*summary_tasks)
+        await asyncio.gather(*summary_tasks)  # type: ignore
 
     async def get_and_update_player_summary(
         self, player: Player, phase: str, phase_context: str
@@ -328,29 +315,29 @@ class Game:
         for player in self.alive_players:
             p: Player = self.players[player]
 
-            vote_tasks.append(self.get_day_vote(p))
-        results = await asyncio.gather(*vote_tasks)
+            vote_tasks.append(self.get_day_vote(p))  # type: ignore
+        results = await asyncio.gather(*vote_tasks)  # type: ignore
 
         votes: dict[PlayerName, PlayerName] = {}
 
-        for result in results:
+        for result in results:  # type: ignore
             player = self.players[result["player"]]
             # Split on whitespace and take the last entry as the vote
-            vote = result["vote"].strip().split()[-1] if result["vote"].strip() else ""
+            vote = result["vote"].strip().split()[-1] if result["vote"].strip() else ""  # type: ignore
             if vote not in self.alive_players and vote != player.name:
                 player.invalid_response_count += 1
-                self.logger.info(f"{player.name} made an invalid vote: {vote}")
+                logger.info(f"{player.name} made an invalid vote: {vote}")
             else:
-                votes[player.name] = vote
+                votes[player.name] = vote  # type: ignore
 
         if not votes:
-            self.logger.warning("No valid votes cast")
+            logger.warning("No valid votes cast")
             return
 
         vote_counts = Counter(votes.values())
         top_votes = vote_counts.most_common()
         if not top_votes:
-            self.logger.warning("No votes to count")
+            logger.warning("No votes to count")
             return
 
         max_votes = top_votes[0][1]
@@ -359,7 +346,7 @@ class Game:
         ]
         eliminated_player = random.choice(tied_choices)
 
-        self.logger.info(f"Eliminated player: {eliminated_player}")
+        logger.info(f"Eliminated player: {eliminated_player}")
 
         self.players[eliminated_player].alive = False
 
@@ -422,29 +409,29 @@ class Game:
         for player in self.mafia_names_alive:
             p: Player = self.players[player]
 
-            vote_tasks.append(self.get_night_vote(p))
-        results = await asyncio.gather(*vote_tasks)
+            vote_tasks.append(self.get_night_vote(p))  # type: ignore
+        results = await asyncio.gather(*vote_tasks)  # type: ignore
 
         votes: dict[PlayerName, PlayerName] = {}
 
-        for result in results:
+        for result in results:  # type: ignore
             player = self.players[result["player"]]
             # Split on whitespace and take the last entry as the vote
-            vote = result["vote"].strip().split()[-1] if result["vote"].strip() else ""
+            vote = result["vote"].strip().split()[-1] if result["vote"].strip() else ""  # type: ignore
             if vote not in self.alive_players and vote != player.name:
                 player.invalid_response_count += 1
-                self.logger.info(f"{player.name} made an invalid vote: {vote}")
+                logger.info(f"{player.name} made an invalid vote: {vote}")
             else:
-                votes[player.name] = vote
+                votes[player.name] = vote  # type: ignore
 
         if not votes:
-            self.logger.warning("No valid votes cast")
+            logger.warning("No valid votes cast")
             return
 
         vote_counts = Counter(votes.values())
         top_votes = vote_counts.most_common()
         if not top_votes:
-            self.logger.warning("No votes to count")
+            logger.warning("No votes to count")
             return
 
         max_votes = top_votes[0][1]
@@ -453,7 +440,7 @@ class Game:
         ]
         eliminated_player = random.choice(tied_choices)
 
-        self.logger.info(f"Eliminated player: {eliminated_player}")
+        logger.info(f"Eliminated player: {eliminated_player}")
 
         self.players[eliminated_player].alive = False
 
@@ -467,7 +454,7 @@ class Game:
 
         await self.update_knowledge_bases(Phase.DAY, str(evt))
         if self.is_game_over:
-            self.logger.info("Game over!")
+            logger.info("Game over!")
 
     def calc_stats(self) -> GameStats:
         winner = Role.MAFIA if self.n_mafia_alive > 0 else Role.TOWNSPERSON
@@ -507,7 +494,7 @@ class Game:
             ),
             n_players=self.n_players,
             n_mafia=self.n_mafia,
-            game_duration=self.end_time - self.start_time,
+            game_duration=self.end_time - self.start_time,  # type: ignore
             game_rounds=self.day_count,
         )
 

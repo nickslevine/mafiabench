@@ -1,21 +1,21 @@
 import asyncio
 import random
 import time
-import logging
+from loguru import logger
 from collections import defaultdict
 from typing import List, Dict, Tuple, Optional, Coroutine, Any
 import numpy as np
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr  # type: ignore
 
 from contest import Contest, ContestStats
 from mafia import GameStats, PlayerName, Role
 from elo_ratings import ELOSystem  # Import the new ELO system
 
 # Set up logger
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+# logging.basicConfig(
+#     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+# )
+# logger = logging.getLogger(__name__)
 
 
 class Tournament:
@@ -144,7 +144,7 @@ class Tournament:
 
             if best_match_idx != -1:
                 model_b = models_to_pair.pop(best_match_idx)  # Remove paired model B
-                pairings.append((model_a, model_b))
+                pairings.append((model_a, model_b))  # type: ignore
                 paired_models.add(model_a)
                 paired_models.add(model_b)
                 self.match_history[model_a].append(model_b)
@@ -159,7 +159,7 @@ class Tournament:
                     logger.warning(
                         f"Round {self.current_round + 1}: Allowing rematch between {model_a} and {model_b}"
                     )
-                    pairings.append((model_a, model_b))
+                    pairings.append((model_a, model_b))  # type: ignore
                     paired_models.add(model_a)
                     paired_models.add(model_b)
                     # Update match history even for rematches if needed for tracking
@@ -174,7 +174,7 @@ class Tournament:
                     i += 1  # Move to next potential model A
 
         logger.info(f"Round {self.current_round + 1} pairings: {pairings}")
-        return pairings
+        return pairings  # type: ignore
 
     async def run_round(self) -> List[GameStats]:
         """
@@ -310,14 +310,6 @@ class Tournament:
         Requires numpy and scipy installed.
         Returns None if dependencies are missing, it's the first round, or rankings can't be compared.
         """
-        try:
-            import numpy as np
-            from scipy.stats import spearmanr
-        except ImportError:
-            logger.warning(
-                "numpy or scipy not installed. Skipping rank correlation calculation."
-            )
-            return None
 
         if self.previous_rankings is None or len(self.previous_rankings) != len(
             current_ranking
@@ -342,17 +334,17 @@ class Tournament:
         curr_ranks_valid = [curr_ranks[i] for i in valid_indices]
 
         try:
-            correlation, p_value = spearmanr(prev_ranks_valid, curr_ranks_valid)
-            if np.isnan(correlation):
+            correlation, _ = spearmanr(prev_ranks_valid, curr_ranks_valid)
+            if np.isnan(correlation):  # type: ignore
                 return (
                     None  # Handle case where correlation is NaN (e.g., zero variance)
                 )
-            return correlation
+            return correlation  # type: ignore
         except Exception as e:
             logger.error(f"Error calculating rank correlation: {e}")
             return None
 
-    async def run_tournament(self):
+    async def run_tournament(self) -> List[Tuple[str, float]]:
         """
         Runs the full tournament for the specified number of rounds using ELO.
         """
@@ -362,7 +354,7 @@ class Tournament:
         start_time = time.time()
 
         # Initial ratings log
-        logger.info(f"--- Initial Ratings --- ")
+        logger.info("--- Initial Ratings --- ")
         initial_ratings = self._get_model_ratings_sorted()
         for name, rating in initial_ratings:
             self.rating_history[name].append(rating)
@@ -371,14 +363,14 @@ class Tournament:
         # Store initial state as "previous" for first correlation calculation
         self.previous_rankings = [name for name, _ in initial_ratings]
 
-        for r in range(self.num_rounds):
+        for _ in range(self.num_rounds):
             round_results = await self.run_round()
             self._update_ratings(round_results)  # Updates ratings and logs stability
             # Logger info now happens inside _update_ratings
 
         end_time = time.time()
         logger.info(f"Tournament finished in {end_time - start_time:.2f} seconds.")
-        logger.info(f"--- Final Rankings (ELO) --- ")
+        logger.info("--- Final Rankings (ELO) --- ")
         final_rankings = self._get_model_ratings_sorted()
         for i, (name, rating) in enumerate(final_rankings):
             logger.info(f"  {i + 1}. {name}: Rating={rating:.2f}")
@@ -395,12 +387,12 @@ class Tournament:
 
 
 # Example Usage
-async def main():
+async def main() -> None:
     models = [
-        "openai/gpt-4-turbo",
-        "anthropic/claude-3-opus-20240229",
-        "google/gemini-pro",
-        "mistralai/mistral-large-latest",
+        "mistralai/mistral-7b-instruct",
+        "google/gemma-2-9b-it",
+        "mistralai/mistral-nemo",
+        "google/gemini-flash-1.5-8b",
     ]
     player_names_list = [
         "Alice",
@@ -410,14 +402,21 @@ async def main():
         "Eve",
         "Frank",
         "Grace",
+        "Henry",
+        "Ivy",
+        "Jack",
+        "Kate",
+        "Liam",
+        "Mia",
+        "Noah",
     ]  # Need at least n_players_per_game
 
     tournament = Tournament(
         model_names=models,
         player_names=[PlayerName(name) for name in player_names_list],
-        num_rounds=5,  # Adjust as needed
+        num_rounds=2,  # Adjust as needed
         games_per_contest=4,
-        n_players_per_game=7,
+        n_players_per_game=8,
         n_mafia_per_game=2,
         n_concurrent_contests=2,
         n_concurrent_games_per_contest=5,
@@ -425,6 +424,9 @@ async def main():
     )
 
     final_rankings = await tournament.run_tournament()
+
+    print("Final Rankings:")
+    print(final_rankings)
 
     print("\nFinal ELO Ratings:")
     print(tournament.get_final_ratings())

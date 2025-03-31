@@ -6,4 +6,5 @@ TODO:
 
 - check summaries are working
 - implement tournament. 
-- vote logging (mafia?)
+    - check doubling of logging. 
+    - interactive logging

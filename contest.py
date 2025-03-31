@@ -5,12 +5,13 @@ from rate_limiter import GlobalRateLimiter
 from game import Game
 import asyncio
 import time
-import logging
+
+# import logging
 import os
 from typing import Optional, Coroutine, Any, List, Tuple
 
 # Suppress httpx info logs
-logging.getLogger("httpx").setLevel(logging.WARNING)
+# logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class Contest:
@@ -60,7 +61,7 @@ class Contest:
                 self.n_mafia,
                 mafia_model,
                 townsperson_model,
-                [str(name) for name in self.player_names],
+                [name for name in self.player_names],
                 self.temperature,
                 game_id=i,
             )

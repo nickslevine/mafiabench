@@ -1,7 +1,7 @@
+from __future__ import annotations
 from enum import Enum
-import json
 import time
-from typing import NewType, Optional
+from typing import NewType, Optional, Dict, Any, List
 from dataclasses import dataclass
 
 # Type alias for player names
@@ -28,6 +28,8 @@ class Phase(Enum):
             return Phase.NIGHT
         elif self == Phase.NIGHT:
             return Phase.DAY
+        else:
+            raise ValueError(f"Invalid phase: {self}")
 
 
 class EventType(Enum):
@@ -47,7 +49,7 @@ class Event:
         self.phase = str(phase)
         self.day_count = day_count
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return self.__dict__
 
 
@@ -78,7 +80,7 @@ class StatementEvent(Event):
         self.speaker = speaker
         self.statement = statement
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<{self.speaker}>{self.statement.replace('\n', ' ')}</{self.speaker}>"
 
 
@@ -95,7 +97,7 @@ class VoteSummaryEvent(Event):
         self.votes = votes
         self.result = result
 
-    def __str__(self):
+    def __str__(self) -> str:
         if self.phase == Phase.DAY:
             return f"The players have voted on who to eliminate as follows: {self.votes}. The player who was eliminated was {self.result}."
         else:
@@ -113,28 +115,28 @@ class MafiaKillEvent(Event):
         super().__init__(event_type, phase, day_count)
         self.victim = victim
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Last night, the mafia killed {self.victim}."
 
 
 class EventLog:
     def __init__(self):
-        self.events = []
+        self.events: List[Event] = []
 
-    def add(self, event: Event):
+    def add(self, event: Event) -> None:
         self.events.append(event)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "\n".join([str(event) for event in self.events])
 
     @property
-    def empty(self):
+    def empty(self) -> bool:
         return len(self.events) == 0
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.events)
 
-    def to_dict(self):
+    def to_dict(self) -> List[Dict[str, Any]]:
         return [x.to_dict() for x in self.events]
 
 
@@ -154,7 +156,7 @@ class GameStats:
     game_duration: float
     game_rounds: int
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return self.__dict__
 
 
@@ -167,7 +169,7 @@ class ModelContestStats:
     total_time: float
     total_messages: int
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return self.__dict__
 
 
@@ -185,7 +187,9 @@ class ContestStats:
     model_b_stats: Optional[ModelContestStats] = None
 
     @staticmethod
-    def games_list_to_model_stats(stats_list: list[GameStats], model: str):
+    def games_list_to_model_stats(
+        stats_list: list[GameStats], model: str
+    ) -> ModelContestStats:
         n_wins_mafia = 0
         n_wins_townsperson = 0
         n_invalid_votes = 0
@@ -218,7 +222,7 @@ class ContestStats:
     @staticmethod
     def from_stats_list(
         stats_list: list[GameStats], duration: float, n_concurrent_games: int, name: str
-    ):
+    ) -> ContestStats:
         model_a = stats_list[0].model_mafia
         model_b = stats_list[0].model_townsperson
         multi_model = model_a != model_b
@@ -244,8 +248,8 @@ class ContestStats:
             time_finished=time.time(),
         )
 
-    def summary(self):
-        summary = {
+    def summary(self) -> Dict[str, Any]:
+        summary: Dict[str, Any] = {
             "model_win_rates": {},
             "role_win_rates": {},
             "model_invalid_votes": {},
@@ -268,27 +272,33 @@ class ContestStats:
             self.model_a_stats.total_time / self.model_a_stats.total_messages, 2
         )
 
+        b_wins_mafia = 0
+        b_wins_townsperson = 0
+        if multi_model and self.model_b_stats:
+            b_wins_mafia = self.model_b_stats.n_wins_mafia
+            b_wins_townsperson = self.model_b_stats.n_wins_townsperson
+
         summary["role_win_rates"]["mafia"] = (
-            self.model_a_stats.n_wins_mafia
-            + (self.model_b_stats.n_wins_mafia if multi_model else 0)
+            self.model_a_stats.n_wins_mafia + b_wins_mafia
         ) / self.n_games
 
         summary["role_win_rates"]["townsperson"] = (
-            self.model_a_stats.n_wins_townsperson
-            + (self.model_b_stats.n_wins_townsperson if multi_model else 0)
+            self.model_a_stats.n_wins_townsperson + b_wins_townsperson
         ) / self.n_games
 
         if multi_model:
-            summary["model_win_rates"][self.model_b_stats.model_name] = (
-                self.model_b_stats.n_wins_mafia + self.model_b_stats.n_wins_townsperson
-            ) / self.n_games
+            if self.model_b_stats:
+                summary["model_win_rates"][self.model_b_stats.model_name] = (
+                    self.model_b_stats.n_wins_mafia
+                    + self.model_b_stats.n_wins_townsperson
+                ) / self.n_games
 
-            summary["model_invalid_votes"][self.model_b_stats.model_name] = (
-                self.model_b_stats.n_invalid_votes
-            )
+                summary["model_invalid_votes"][self.model_b_stats.model_name] = (
+                    self.model_b_stats.n_invalid_votes
+                )
 
-            summary["model_latency"][self.model_b_stats.model_name] = round(
-                self.model_b_stats.total_time / self.model_b_stats.total_messages, 2
-            )
+                summary["model_latency"][self.model_b_stats.model_name] = round(
+                    self.model_b_stats.total_time / self.model_b_stats.total_messages, 2
+                )
 
         return summary
