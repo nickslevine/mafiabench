@@ -1,5 +1,6 @@
 from enum import Enum
 import json
+import time
 from typing import NewType, Optional
 from dataclasses import dataclass
 
@@ -172,12 +173,14 @@ class ModelContestStats:
 
 @dataclass
 class ContestStats:
+    name: str
     n_games: int
     n_players: int
     n_mafia: int
     contest_duration: float
     avg_game_duration: float
     game_parallelism: int
+    time_finished: float
     model_a_stats: ModelContestStats
     model_b_stats: Optional[ModelContestStats] = None
 
@@ -214,7 +217,7 @@ class ContestStats:
 
     @staticmethod
     def from_stats_list(
-        stats_list: list[GameStats], duration: float, n_concurrent_games: int
+        stats_list: list[GameStats], duration: float, n_concurrent_games: int, name: str
     ):
         model_a = stats_list[0].model_mafia
         model_b = stats_list[0].model_townsperson
@@ -228,6 +231,7 @@ class ContestStats:
             model_b_stats = None
 
         return ContestStats(
+            name=name,
             n_games=len(stats_list),
             n_players=stats_list[0].n_players,
             n_mafia=stats_list[0].n_mafia,
@@ -237,6 +241,7 @@ class ContestStats:
             avg_game_duration=sum([game.game_duration for game in stats_list])
             / len(stats_list),
             game_parallelism=n_concurrent_games,
+            time_finished=time.time(),
         )
 
     def summary(self):
