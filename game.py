@@ -747,6 +747,15 @@ class Game:
                         internal_game_id=self.game_id,
                         contest_name=self.contest_name,
                         game_index=self.game_index,
+                        full_data={
+                            "mafia_alive": len(self.mafia_names_alive),
+                            "townspeople_alive": len(self.alive_players)
+                            - len(self.mafia_names_alive),
+                            "phase": "Game Over",
+                            "day_count": self.day_count,
+                            "mafia_model": self.model_mafia,
+                            "town_model": self.model_townsperson,
+                        },
                     )
                 except Exception as e:
                     logger.error(

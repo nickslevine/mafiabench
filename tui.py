@@ -443,7 +443,7 @@ class TournamentTUI(App[None]):
     def _do_update_game_progress(self, progress_data: Dict[str, Any]) -> None:
         """Safely updates the GameWidget from the main thread using received data."""
 
-        self.log.info(f"Received progress data: {progress_data}")
+        # self.log.info(f"Received progress data: {progress_data}")
         internal_game_id = progress_data.get("internal_game_id")
         if not internal_game_id:
             self.log.error("Progress update missing internal_game_id")
@@ -460,7 +460,7 @@ class TournamentTUI(App[None]):
 
         # Handle game over state if present
         if progress_data.get("phase_name") == "Game Over":
-            self._handle_game_over(unique_internal_id)
+            self._handle_game_over(unique_internal_id, progress_data)
             return
 
         # Get or create widget for the game
@@ -471,7 +471,9 @@ class TournamentTUI(App[None]):
         # Update the widget with latest data
         self._update_widget_state(widget, progress_data)
 
-    def _handle_game_over(self, unique_internal_id: str) -> None:
+    def _handle_game_over(
+        self, unique_internal_id: str, progress_data: Dict[str, Any]
+    ) -> None:
         """Handle game completion by updating its status."""
         self.log.info(
             f"Game Over detected for unique_internal_id: {unique_internal_id}"
@@ -480,17 +482,33 @@ class TournamentTUI(App[None]):
 
         tui_game_id = self.game_widget_map.get(unique_internal_id)
         if not tui_game_id:
-            self.log.warning(
+            raise Exception(
                 f"Received 'Game Over' but unique_internal_id {unique_internal_id} not found in game_widget_map."
             )
-            return
 
         widget = self.active_games.get(tui_game_id)
         if widget:
-            # Update the widget to show game over status
-            widget.progress_text = "Game Over"
+            self.log.info(
+                f"Updating widget {tui_game_id} with game over data {progress_data}"
+            )
+            # Update the widget to show game over status and determine winner
+            mafia_alive = progress_data["full_data"]["mafia_alive"]
+            town_alive = progress_data["full_data"]["townspeople_alive"]
+
+            widget.mafia_alive = mafia_alive
+            widget.townspeople_alive = town_alive
+
+            if mafia_alive >= town_alive:
+                winner_text = "Mafia Win!"
+                widget.styles.border = ("heavy", "red")
+            else:
+                winner_text = "Town Win!"
+                widget.styles.border = ("heavy", "green")
+
+            widget.phase = "Game Over"
+            widget.progress_text = winner_text  # Actually set the progress_text
         else:
-            self.log.warning(
+            raise Exception(
                 f"Widget {tui_game_id} not found in active_games dictionary."
             )
 
@@ -508,7 +526,7 @@ class TournamentTUI(App[None]):
 
         # Create unique internal ID with consistent format
         unique_internal_id = f"{contest_name}_game_{internal_game_id}"
-        self.log.info(f"Using unique internal ID: {unique_internal_id}")
+        # self.log.info(f"Using unique internal ID: {unique_internal_id}")
 
         full_data = progress_data.get("full_data")
         widget = self.active_games.get(tui_game_id)
@@ -562,6 +580,11 @@ class TournamentTUI(App[None]):
         """Update an existing widget with new game state."""
         full_data = progress_data.get("full_data")
         progress_text = progress_data.get("text")
+        phase_name = progress_data.get("phase_name")
+
+        # Don't update progress text if we're in game over state
+        if phase_name == "Game Over":
+            return
 
         # Handle KB update status - show notes updating in progress text only
         if progress_data.get("updating_kb"):
@@ -583,7 +606,7 @@ class TournamentTUI(App[None]):
                 full_data.get("townspeople_alive", widget.townspeople_alive),
             )
 
-        # Update progress text
+        # Update progress text if not in game over state
         if progress_text is not None:
             widget.progress_text = progress_text
 
