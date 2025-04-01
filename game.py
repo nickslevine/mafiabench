@@ -292,11 +292,11 @@ class Game:
             )
 
             evt = StatementEvent(
-                EventType.INTRO_STATEMENT,
-                p.name,
-                response,
-                Phase.INTRO,
-                self.day_count,
+                event_type=EventType.INTRO_STATEMENT,
+                player=p.name,
+                statement=response,
+                phase=Phase.INTRO,
+                day_count=self.day_count,
             )
             messages.add(evt)
             self.event_log.add(evt)
@@ -409,11 +409,11 @@ class Game:
             )
 
             evt = StatementEvent(
-                EventType.DAY_STATEMENT,
-                p.name,
-                response,
-                Phase.DAY,
-                self.day_count,
+                event_type=EventType.DAY_STATEMENT,
+                player=p.name,
+                statement=response,
+                phase=Phase.DAY,
+                day_count=self.day_count,
             )
             messages.add(evt)
             self.event_log.add(evt)
@@ -514,11 +514,11 @@ class Game:
             return
 
         evt = VoteSummaryEvent(
-            EventType.DAY_VOTE_SUMMARY,
-            votes,  # type: ignore
-            eliminated_player,
-            Phase.DAY,
-            self.day_count,
+            event_type=EventType.DAY_VOTE_SUMMARY,
+            votes=votes,
+            eliminated_player=eliminated_player,
+            phase=Phase.DAY,
+            day_count=self.day_count,
         )
         self.event_log.add(evt)
 
@@ -570,11 +570,11 @@ class Game:
             )
 
             evt = StatementEvent(
-                EventType.NIGHT_STATEMENT,
-                p.name,
-                response,
-                Phase.NIGHT,
-                self.day_count,
+                event_type=EventType.NIGHT_STATEMENT,
+                player=p.name,
+                statement=response,
+                phase=Phase.NIGHT,
+                day_count=self.day_count,
             )
 
             messages.add(evt)
@@ -654,10 +654,10 @@ class Game:
             return
 
         evt = MafiaKillEvent(
-            EventType.MAFIA_KILL,
-            eliminated_player,
-            Phase.NIGHT,
-            self.day_count,
+            event_type=EventType.MAFIA_KILL,
+            eliminated_player=eliminated_player,
+            phase=Phase.NIGHT,
+            day_count=self.day_count,
         )
         self.event_log.add(evt)
 

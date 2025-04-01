@@ -91,15 +91,18 @@ class Contest:
         wrapped_tasks = [run_game_with_semaphore(task) for task in game_tasks]
 
         # Run all games with concurrency controlled by the semaphore
-        stats_list: List[GameStats] = await asyncio.gather(*wrapped_tasks)
+        individual_game_stats: List[GameStats] = await asyncio.gather(*wrapped_tasks)
         self.end_time = time.perf_counter()
         duration = self.end_time - self.start_time
-        stats = ContestStats.from_stats_list(
-            stats_list, duration, self.n_concurrent_games, self.name
+
+        # Calculate overall contest stats using the individual results
+        contest_summary_stats = ContestStats.from_stats_list(
+            individual_game_stats, duration, self.n_concurrent_games, self.name
         )
-        self.serialize(stats)
+
+        self.serialize(contest_summary_stats)
         # Return both the summary stats and the list of individual game stats
-        return stats, stats_list
+        return contest_summary_stats, individual_game_stats
 
     def serialize(self, stats: ContestStats):
         os.makedirs("contest_results", exist_ok=True)

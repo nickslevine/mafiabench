@@ -1,14 +1,17 @@
 import asyncio
 import random
 import time
+import json
+import os
+import datetime
 from loguru import logger
 from collections import defaultdict
 from typing import List, Dict, Tuple, Optional, Coroutine, Any
 import numpy as np
 from scipy.stats import spearmanr  # type: ignore
 
-from contest import Contest, ContestStats
-from mafia import GameStats, PlayerName, Role
+from contest import Contest
+from mafia import GameStats, PlayerName, Role, ContestStats
 from elo_ratings import ELOSystem  # Import the new ELO system
 
 # Set up logger
@@ -75,12 +78,18 @@ class Tournament:
         self.limiter_requests_per_second = limiter_requests_per_second
         self.n_concurrent_contests = n_concurrent_contests
         self.n_concurrent_games_per_contest = n_concurrent_games_per_contest
+        self.elo_initial_rating = elo_initial_rating
 
         # ELO setup
-        self.elo_system = ELOSystem(model_names, elo_k_factor, elo_initial_rating)
+        self.elo_system = ELOSystem(model_names, elo_k_factor, self.elo_initial_rating)
         self.rating_history: Dict[str, List[float]] = defaultdict(
             list
         )  # Stores ELO rating per round
+        # Add initial ratings to history
+        initial_ratings = self.elo_system.get_all_ratings()
+        for name in self.model_names:
+            self.rating_history[name].append(initial_ratings[name])
+
         self.match_history: Dict[str, List[str]] = {name: [] for name in model_names}
 
         self.current_round = 0
@@ -93,6 +102,11 @@ class Tournament:
         self.stability_stats: List[
             Dict[str, Optional[float]]
         ] = []  # Store {rank_corr} per round
+        self.completed_contests_data: List[Dict[str, Any]] = []
+        # --- Initialize time attributes ---
+        self.tournament_start_time: Optional[float] = None
+        self.tournament_end_time: Optional[float] = None
+        # ----------------------------------
 
     def _get_model_ratings_sorted(self) -> List[Tuple[str, float]]:
         """Returns models sorted by their current ELO rating."""
@@ -188,12 +202,13 @@ class Tournament:
             logger.info("No pairings generated for this round.")
             return []
 
-        # Explicitly type contest_tasks
+        # Tasks will return Tuple[ContestStats, List[GameStats]]
         contest_tasks: List[
             Coroutine[Any, Any, Tuple[ContestStats, List[GameStats]]]
         ] = []
         for i, (model_a, model_b) in enumerate(pairings):
             contest_name = f"R{self.current_round}_M{i + 1}_{model_a.replace('/', '_')}_vs_{model_b.replace('/', '_')}"
+            # --- Re-instantiate Contest here ---
             contest = Contest(
                 name=contest_name,
                 n_games=self.games_per_contest,
@@ -205,37 +220,49 @@ class Tournament:
                 temperature=self.temperature,
                 limiter_requests_per_second=self.limiter_requests_per_second,
                 n_concurrent_games=self.n_concurrent_games_per_contest,
+                # progress/event callbacks are injected by TUI if running TUI
             )
-            # contest.run returns (ContestStats, List[GameStats])
-            contest_tasks.append(contest.run())
+            contest_tasks.append(
+                contest.run()
+            )  # Append the coroutine from contest.run()
+            # -----------------------------------
 
         # Limit concurrent contests
         semaphore = asyncio.Semaphore(self.n_concurrent_contests)
-        # Explicitly type round_game_stats
-        round_game_stats: List[
-            GameStats
-        ] = []  # Collect GameStats from all contests in the round
 
-        # Define type hints for the async helper function
+        # run_contest_with_semaphore should return the FULL tuple
         async def run_contest_with_semaphore(
             task: Coroutine[Any, Any, Tuple[ContestStats, List[GameStats]]],
-        ) -> List[GameStats]:
+        ) -> Tuple[ContestStats, List[GameStats]]:  # Correct return type
             async with semaphore:
                 contest_stats, game_stats_list = await task
                 logger.info(f"Contest {contest_stats.name} finished.")
-                return game_stats_list  # Return only the list of GameStats
+                # Return the full tuple
+                return contest_stats, game_stats_list
 
         # Run contests with concurrency control
-        results_list: List[List[GameStats]] = await asyncio.gather(
+        results_list: List[Tuple[ContestStats, List[GameStats]]] = await asyncio.gather(
             *(run_contest_with_semaphore(task) for task in contest_tasks)
         )
 
-        # Flatten the list of lists of GameStats
-        for game_list in results_list:
-            round_game_stats.extend(game_list)
+        # Flatten the list of GameStats and populate completed_contests_data
+        all_round_game_stats: List[GameStats] = []
+        for contest_stats, individual_game_stats in results_list:
+            games_data = [gs.to_dict() for gs in individual_game_stats]
+            self.completed_contests_data.append(
+                {
+                    "contest_name": contest_stats.name,
+                    "round_number": self.current_round,
+                    "model_a": contest_stats.model_a,
+                    "model_b": contest_stats.model_b,
+                    "contest_stats": contest_stats.summary(),
+                    "games": games_data,
+                }
+            )
+            all_round_game_stats.extend(individual_game_stats)
 
-        self.all_results.extend(round_game_stats)
-        return round_game_stats
+        self.all_results.extend(all_round_game_stats)
+        return all_round_game_stats
 
     def _update_ratings(self, round_results: List[GameStats]):
         """
@@ -375,6 +402,12 @@ class Tournament:
         for i, (name, rating) in enumerate(final_rankings):
             logger.info(f"  {i + 1}. {name}: Rating={rating:.2f}")
 
+        # --- Serialize final results ---
+        output_filename = f"tournament_results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        self.serialize_results(output_filename)
+        logger.info(f"Full tournament results saved to {output_filename}")
+        # -----------------------------
+
         return final_rankings
 
     def get_final_ratings(self) -> Dict[str, float]:
@@ -384,6 +417,62 @@ class Tournament:
     def get_rating_history(self) -> Dict[str, List[float]]:
         """Returns the ELO rating history for each model across rounds."""
         return self.rating_history
+
+    def serialize_results(self, filepath: str):
+        """Serialize the complete tournament results to a JSON file."""
+
+        # Ensure the target directory exists, default to current dir if only filename given
+        output_dir = os.path.dirname(filepath) or "."
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Calculate duration safely using hasattr check
+        duration = None
+        if (
+            hasattr(self, "tournament_start_time")
+            and self.tournament_start_time
+            and hasattr(self, "tournament_end_time")
+            and self.tournament_end_time
+        ):
+            duration = self.tournament_end_time - self.tournament_start_time
+
+        # Use the stored initial rating
+        initial_rating = self.elo_initial_rating
+
+        final_data = {
+            "tournament_metadata": {
+                "start_time": datetime.datetime.fromtimestamp(
+                    self.tournament_start_time
+                ).isoformat()
+                if hasattr(self, "tournament_start_time") and self.tournament_start_time
+                else None,
+                "end_time": datetime.datetime.fromtimestamp(
+                    self.tournament_end_time
+                ).isoformat()
+                if hasattr(self, "tournament_end_time") and self.tournament_end_time
+                else None,
+                "duration_seconds": duration,
+                "model_names": self.model_names,
+                "num_rounds": self.num_rounds,
+                "games_per_contest": self.games_per_contest,
+                "n_players_per_game": self.n_players_per_game,
+                "n_mafia_per_game": self.n_mafia_per_game,
+                "temperature": self.temperature,
+                "limiter_requests_per_second": self.limiter_requests_per_second,
+                "n_concurrent_contests": self.n_concurrent_contests,
+                "n_concurrent_games_per_contest": self.n_concurrent_games_per_contest,
+                "elo_k_factor": self.elo_system.k_factor,
+                "elo_initial_rating": initial_rating,
+            },
+            "final_elo_ratings": self.elo_system.get_all_ratings(),
+            "elo_rating_history_by_round": self.rating_history,
+            "contests": self.completed_contests_data,
+        }
+
+        try:
+            with open(filepath, "w") as f:
+                json.dump(final_data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to serialize tournament results to {filepath}: {e}")
 
 
 # Example Usage

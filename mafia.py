@@ -1,8 +1,7 @@
 from __future__ import annotations
 from enum import Enum
-import time
-from typing import NewType, Optional, Dict, Any, List
-from dataclasses import dataclass
+from typing import NewType, Dict, Any, List
+from dataclasses import dataclass, asdict
 
 # Type alias for player names
 PlayerName = NewType("PlayerName", str)
@@ -17,11 +16,11 @@ class Role(Enum):
 
 
 class Phase(Enum):
+    INTRO = "intro"
     DAY = "day"
     NIGHT = "night"
-    INTRO = "intro"
 
-    def next(self):
+    def next(self) -> "Phase":
         if self == Phase.INTRO:
             return Phase.DAY
         elif self == Phase.DAY:
@@ -29,122 +28,95 @@ class Phase(Enum):
         elif self == Phase.NIGHT:
             return Phase.DAY
         else:
-            raise ValueError(f"Invalid phase: {self}")
+            raise ValueError(f"Invalid phase transition from {self}")
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class EventType(Enum):
-    MAFIA_VOTE = "mafia_vote"
-    TOWNSPERSON_VOTE = "townsperson_vote"
-    NIGHT_VOTE_SUMMARY = "night_vote_summary"
-    DAY_VOTE_SUMMARY = "day_vote_summary"
     INTRO_STATEMENT = "intro_statement"
     DAY_STATEMENT = "day_statement"
     NIGHT_STATEMENT = "night_statement"
+    DAY_VOTE_SUMMARY = "day_vote_summary"
     MAFIA_KILL = "mafia_kill"
 
 
-class Event:
-    def __init__(self, event_type: EventType, phase: Phase, day_count: int):
-        self.event_type = str(event_type)
-        self.phase = str(phase)
-        self.day_count = day_count
+@dataclass
+class BaseEvent:
+    event_type: EventType
+    phase: Phase
+    day_count: int
 
     def to_dict(self) -> Dict[str, Any]:
-        return self.__dict__
+        return {
+            "event_type": self.event_type.value,
+            "phase": str(self.phase),
+            "day_count": self.day_count,
+        }
 
 
-class VotingEvent(Event):
-    def __init__(
-        self,
-        event_type: EventType,
-        voter: PlayerName,
-        target: PlayerName,
-        phase: Phase,
-        day_count: int,
-    ):
-        super().__init__(event_type, phase, day_count)
-        self.voter = voter
-        self.target = target
+@dataclass
+class StatementEvent(BaseEvent):
+    player: PlayerName
+    statement: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        base_dict = super().to_dict()
+        base_dict.update({"player": self.player, "statement": self.statement})
+        return base_dict
 
 
-class StatementEvent(Event):
-    def __init__(
-        self,
-        event_type: EventType,
-        speaker: PlayerName,
-        statement: str,
-        phase: Phase,
-        day_count: int,
-    ):
-        super().__init__(event_type, phase, day_count)
-        self.speaker = speaker
-        self.statement = statement
+@dataclass
+class VoteSummaryEvent(BaseEvent):
+    votes: Dict[PlayerName, PlayerName]
+    eliminated_player: PlayerName
 
-    def __str__(self) -> str:
-        return f"<{self.speaker}>{self.statement.replace('\n', ' ')}</{self.speaker}>"
-
-
-class VoteSummaryEvent(Event):
-    def __init__(
-        self,
-        event_type: EventType,
-        votes: dict[PlayerName, PlayerName],
-        result: PlayerName,
-        phase: Phase,
-        day_count: int,
-    ):
-        super().__init__(event_type, phase, day_count)
-        self.votes = votes
-        self.result = result
-
-    def __str__(self) -> str:
-        if self.phase == Phase.DAY:
-            return f"The players have voted on who to eliminate as follows: {self.votes}. The player who was eliminated was {self.result}."
-        else:
-            return f"The mafia have voted on who to eliminate as follows: {self.votes}. The player who was eliminated was {self.result}."
+    def to_dict(self) -> Dict[str, Any]:
+        base_dict = super().to_dict()
+        base_dict.update(
+            {
+                # Convert votes dict keys/values to strings if they aren't already
+                "votes": {str(k): str(v) for k, v in self.votes.items()},
+                "eliminated_player": self.eliminated_player,
+            }
+        )
+        return base_dict
 
 
-class MafiaKillEvent(Event):
-    def __init__(
-        self,
-        event_type: EventType,
-        victim: PlayerName,
-        phase: Phase,
-        day_count: int,
-    ):
-        super().__init__(event_type, phase, day_count)
-        self.victim = victim
+@dataclass
+class MafiaKillEvent(BaseEvent):
+    eliminated_player: PlayerName
 
-    def __str__(self) -> str:
-        return f"Last night, the mafia killed {self.victim}."
+    def to_dict(self) -> Dict[str, Any]:
+        base_dict = super().to_dict()
+        base_dict.update({"eliminated_player": self.eliminated_player})
+        return base_dict
 
 
 class EventLog:
     def __init__(self):
-        self.events: List[Event] = []
+        self.events: List[BaseEvent] = []
 
-    def add(self, event: Event) -> None:
+    def add(self, event: BaseEvent):
         self.events.append(event)
 
-    def __str__(self) -> str:
-        return "\n".join([str(event) for event in self.events])
+    def __str__(self):
+        return "\n".join(str(event) for event in self.events)
+
+    def to_dict(self) -> List[Dict[str, Any]]:
+        return [event.to_dict() for event in self.events]
 
     @property
     def empty(self) -> bool:
         return len(self.events) == 0
-
-    def __len__(self) -> int:
-        return len(self.events)
-
-    def to_dict(self) -> List[Dict[str, Any]]:
-        return [x.to_dict() for x in self.events]
 
 
 @dataclass
 class GameStats:
     model_mafia: str
     model_townsperson: str
-    winner: str
+    winner: str  # Role enum converted to string
     mafia_invalid_votes: int
     townsperson_invalid_votes: int
     mafia_total_time: float
@@ -157,148 +129,102 @@ class GameStats:
     game_rounds: int
 
     def to_dict(self) -> Dict[str, Any]:
-        return self.__dict__
-
-
-@dataclass
-class ModelContestStats:
-    model_name: str
-    n_wins_mafia: int
-    n_wins_townsperson: int
-    n_invalid_votes: int
-    total_time: float
-    total_messages: int
-
-    def to_dict(self) -> Dict[str, Any]:
-        return self.__dict__
+        """Convert GameStats to a dictionary suitable for JSON serialization."""
+        return asdict(self)
 
 
 @dataclass
 class ContestStats:
     name: str
-    n_games: int
-    n_players: int
-    n_mafia: int
-    contest_duration: float
+    model_a: str
+    model_b: str
+    games_played: int
+    wins_model_a_as_mafia: int
+    wins_model_a_as_town: int
+    wins_model_b_as_mafia: int
+    wins_model_b_as_town: int
     avg_game_duration: float
-    game_parallelism: int
-    time_finished: float
-    model_a_stats: ModelContestStats
-    model_b_stats: Optional[ModelContestStats] = None
+    total_duration: float
+    n_concurrent_games: int
+    avg_rounds_per_game: float
+    # Add other fields if needed
 
-    @staticmethod
-    def games_list_to_model_stats(
-        stats_list: list[GameStats], model: str
-    ) -> ModelContestStats:
-        n_wins_mafia = 0
-        n_wins_townsperson = 0
-        n_invalid_votes = 0
-        total_time = 0
-        total_messages = 0
-        for game in stats_list:
-            if game.model_mafia == model:
-                if game.winner == "mafia":
-                    n_wins_mafia += 1
-                n_invalid_votes += game.mafia_invalid_votes
-                total_time += game.mafia_total_time
-                total_messages += game.mafia_total_messages
-            if game.model_townsperson == model:
-                if game.winner == "townsperson":
-                    n_wins_townsperson += 1
-                n_invalid_votes += game.townsperson_invalid_votes
-                total_time += game.townsperson_total_time
-                total_messages += game.townsperson_total_messages
-
-        model_stats = ModelContestStats(
-            model_name=model,
-            n_wins_mafia=n_wins_mafia,
-            n_wins_townsperson=n_wins_townsperson,
-            n_invalid_votes=n_invalid_votes,
-            total_time=total_time,
-            total_messages=total_messages,
-        )
-        return model_stats
-
-    @staticmethod
+    @classmethod
     def from_stats_list(
-        stats_list: list[GameStats], duration: float, n_concurrent_games: int, name: str
-    ) -> ContestStats:
-        model_a = stats_list[0].model_mafia
-        model_b = stats_list[0].model_townsperson
-        multi_model = model_a != model_b
+        cls,
+        stats_list: List[GameStats],
+        total_duration: float,
+        n_concurrent_games: int,
+        contest_name: str,
+    ) -> "ContestStats":
+        # ... existing calculation logic ...
+        # Ensure model_a and model_b are determined correctly, perhaps from the first game?
+        if not stats_list:
+            # Handle case with no games - needs default models
+            # This is tricky, maybe Contest should pass models explicitly?
+            # For now, let's assume stats_list is never empty for a real contest
+            # Or pass model_a/b to this class method? Let's try passing.
+            raise ValueError(
+                "Cannot create ContestStats from empty stats list without model info"
+            )
 
-        model_a_stats = ContestStats.games_list_to_model_stats(stats_list, model_a)
+        # Determine model roles based on first game (assuming balanced contest)
+        first_game = stats_list[0]
+        # Assume first game's mafia is model_a for consistency, but this might need refinement
+        # if contests aren't perfectly balanced or only have one game.
+        model_a = first_game.model_mafia
+        model_b = first_game.model_townsperson
 
-        if multi_model:
-            model_b_stats = ContestStats.games_list_to_model_stats(stats_list, model_b)
-        else:
-            model_b_stats = None
+        wins_model_a_as_mafia = sum(
+            1
+            for game in stats_list
+            if game.model_mafia == model_a and game.winner == Role.MAFIA.value
+        )
+        wins_model_a_as_town = sum(
+            1
+            for game in stats_list
+            if game.model_townsperson == model_a
+            and game.winner == Role.TOWNSPERSON.value
+        )
+        wins_model_b_as_mafia = sum(
+            1
+            for game in stats_list
+            if game.model_mafia == model_b and game.winner == Role.MAFIA.value
+        )
+        wins_model_b_as_town = sum(
+            1
+            for game in stats_list
+            if game.model_townsperson == model_b
+            and game.winner == Role.TOWNSPERSON.value
+        )
+        # ... rest of calculations ...
 
-        return ContestStats(
-            name=name,
-            n_games=len(stats_list),
-            n_players=stats_list[0].n_players,
-            n_mafia=stats_list[0].n_mafia,
-            model_a_stats=model_a_stats,
-            model_b_stats=model_b_stats,
-            contest_duration=duration,
-            avg_game_duration=sum([game.game_duration for game in stats_list])
-            / len(stats_list),
-            game_parallelism=n_concurrent_games,
-            time_finished=time.time(),
+        avg_game_duration = (
+            sum(game.game_duration for game in stats_list) / len(stats_list)
+            if stats_list
+            else 0
+        )
+        avg_rounds_per_game = (
+            sum(game.game_rounds for game in stats_list) / len(stats_list)
+            if stats_list
+            else 0
+        )
+
+        return cls(
+            name=contest_name,
+            model_a=model_a,
+            model_b=model_b,
+            games_played=len(stats_list),
+            wins_model_a_as_mafia=wins_model_a_as_mafia,
+            wins_model_a_as_town=wins_model_a_as_town,
+            wins_model_b_as_mafia=wins_model_b_as_mafia,
+            wins_model_b_as_town=wins_model_b_as_town,
+            avg_game_duration=avg_game_duration,
+            total_duration=total_duration,
+            n_concurrent_games=n_concurrent_games,
+            avg_rounds_per_game=avg_rounds_per_game,
         )
 
     def summary(self) -> Dict[str, Any]:
-        summary: Dict[str, Any] = {
-            "model_win_rates": {},
-            "role_win_rates": {},
-            "model_invalid_votes": {},
-            "model_latency": {},
-            "contest_duration": self.contest_duration,
-            "avg_game_duration": self.avg_game_duration,
-        }
-
-        multi_model = self.model_b_stats is not None
-
-        summary["model_win_rates"][self.model_a_stats.model_name] = (
-            self.model_a_stats.n_wins_mafia + self.model_a_stats.n_wins_townsperson
-        ) / self.n_games
-
-        summary["model_invalid_votes"][self.model_a_stats.model_name] = (
-            self.model_a_stats.n_invalid_votes
-        )
-
-        summary["model_latency"][self.model_a_stats.model_name] = round(
-            self.model_a_stats.total_time / self.model_a_stats.total_messages, 2
-        )
-
-        b_wins_mafia = 0
-        b_wins_townsperson = 0
-        if multi_model and self.model_b_stats:
-            b_wins_mafia = self.model_b_stats.n_wins_mafia
-            b_wins_townsperson = self.model_b_stats.n_wins_townsperson
-
-        summary["role_win_rates"]["mafia"] = (
-            self.model_a_stats.n_wins_mafia + b_wins_mafia
-        ) / self.n_games
-
-        summary["role_win_rates"]["townsperson"] = (
-            self.model_a_stats.n_wins_townsperson + b_wins_townsperson
-        ) / self.n_games
-
-        if multi_model:
-            if self.model_b_stats:
-                summary["model_win_rates"][self.model_b_stats.model_name] = (
-                    self.model_b_stats.n_wins_mafia
-                    + self.model_b_stats.n_wins_townsperson
-                ) / self.n_games
-
-                summary["model_invalid_votes"][self.model_b_stats.model_name] = (
-                    self.model_b_stats.n_invalid_votes
-                )
-
-                summary["model_latency"][self.model_b_stats.model_name] = round(
-                    self.model_b_stats.total_time / self.model_b_stats.total_messages, 2
-                )
-
-        return summary
+        """Return a dictionary summary suitable for JSON serialization."""
+        return asdict(self)
