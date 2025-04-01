@@ -743,10 +743,12 @@ class Game:
             if self.progress_callback:
                 try:
                     self.progress_callback(
-                        phase_name="Game Over", internal_game_id=self.game_id
+                        phase_name="Game Over",
+                        internal_game_id=self.game_id,
+                        contest_name=self.contest_name,
+                        game_index=self.game_index,
                     )
                 except Exception as e:
                     logger.error(
                         f"Game Over progress callback failed for game {self.game_id}: {e}"
                     )
-            # No need to call _report_progress here anymore

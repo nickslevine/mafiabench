@@ -232,23 +232,23 @@ class GameWidget(Static):
         if len(town_display) > 20:
             town_display = town_display[:17] + "..."
 
-        # Add progress text and KB update text if they exist
+        # Format the status line without duplicating the progress text
         status_line = ""
-        if self.progress_text:
-            status_line += f"[i]{self.progress_text}[/i]"
         if self.kb_update_text:
-            if status_line:
-                status_line += " | "
-            status_line += f"[cyan]{self.kb_update_text}[/cyan]"
-        status_display = f" ({status_line})" if status_line else ""
+            status_line = f"[cyan]{self.kb_update_text}[/cyan]"
 
         content = (
             f"[b]{self.game_id}[/b]\n"
             f"[red]Mafia[/red]: {mafia_display}\n"
             f"[green]Town[/green]: {town_display}\n"
-            f"Phase: [{phase_color}]{self.phase.capitalize()}[/] (Day {self.day_count}){status_display}\n"
+            f"Phase: [{phase_color}]{self.phase.capitalize()}[/] (Day {self.day_count}) | [i]{self.progress_text}[/i]\n"
             f"Living: [red]{self.mafia_alive}[/red] Mafia, [green]{self.townspeople_alive}[/green] Town"
         )
+
+        # Add KB update text on a new line if it exists
+        if status_line:
+            content += f"\n{status_line}"
+
         self.update(content)
 
 
@@ -441,96 +441,88 @@ class TournamentTUI(App[None]):
         self.call_later(self._do_update_game_progress, kwargs)
 
     def _do_update_game_progress(self, progress_data: Dict[str, Any]) -> None:
-        """Safely updates the GameWidget from the main thread using received data.
-        Also handles widget creation on first full update and removal on game over.
-        """
+        """Safely updates the GameWidget from the main thread using received data."""
+
+        self.log.info(f"Received progress data: {progress_data}")
         internal_game_id = progress_data.get("internal_game_id")
         if not internal_game_id:
             self.log.error("Progress update missing internal_game_id")
             return
 
-        # --- Check for Game Over ---
-        phase_name = progress_data.get("phase_name")
-        if phase_name == "Game Over":
-            self.log.info(
-                f"Game Over detected for internal_game_id: {internal_game_id}"
+        # Get contest name from either progress data or full data
+        contest_name = progress_data.get("contest_name")
+        if not contest_name:
+            raise Exception(f"Progress update missing contest_name: {progress_data}")
+
+        # Create unique internal ID for game over check
+        unique_internal_id = f"{contest_name}_game_{internal_game_id}"
+        # self.log.info(f"Using unique internal ID: {unique_internal_id}")
+
+        # Handle game over state if present
+        if progress_data.get("phase_name") == "Game Over":
+            self._handle_game_over(unique_internal_id)
+            return
+
+        # Get or create widget for the game
+        widget = self._get_or_create_game_widget(progress_data)
+        if not widget:
+            return
+
+        # Update the widget with latest data
+        self._update_widget_state(widget, progress_data)
+
+    def _handle_game_over(self, unique_internal_id: str) -> None:
+        """Handle game completion by updating its status."""
+        self.log.info(
+            f"Game Over detected for unique_internal_id: {unique_internal_id}"
+        )
+        self._increment_total_games()
+
+        tui_game_id = self.game_widget_map.get(unique_internal_id)
+        if not tui_game_id:
+            self.log.warning(
+                f"Received 'Game Over' but unique_internal_id {unique_internal_id} not found in game_widget_map."
+            )
+            return
+
+        widget = self.active_games.get(tui_game_id)
+        if widget:
+            # Update the widget to show game over status
+            widget.progress_text = "Game Over"
+        else:
+            self.log.warning(
+                f"Widget {tui_game_id} not found in active_games dictionary."
             )
 
-            self._increment_total_games()
-            tui_game_id = self.game_widget_map.get(internal_game_id)
-
-            if tui_game_id:
-                self.log.info(
-                    f"Found TUI ID {tui_game_id} for internal ID {internal_game_id}"
-                )
-                widget_to_remove = self.active_games.get(tui_game_id)
-
-                if widget_to_remove:
-                    self.log.info(
-                        f"Found widget {tui_game_id} in active_games. Attempting removal."
-                    )
-                    try:
-                        self.log.info(f"Calling remove() for widget {tui_game_id}")
-                        widget_to_remove.remove()  # Remove widget from layout
-                        self.log.info(
-                            f"Successfully called remove() for widget {tui_game_id}"
-                        )
-                    except Exception as e:
-                        self.log.error(
-                            f"Error calling remove() for widget {tui_game_id}: {e}"
-                        )
-                else:
-                    self.log.warning(
-                        f"Widget {tui_game_id} not found in active_games dictionary."
-                    )
-
-                # Clean up tracking dictionaries regardless of widget removal success
-                self.log.info(
-                    f"Attempting cleanup for {tui_game_id} / {internal_game_id}"
-                )
-                if tui_game_id in self.active_games:
-                    self.log.info(f"Deleting {tui_game_id} from active_games")
-                    del self.active_games[tui_game_id]
-                if internal_game_id in self.game_widget_map:
-                    self.log.info(f"Deleting {internal_game_id} from game_widget_map")
-                    del self.game_widget_map[internal_game_id]
-                self.log.info(
-                    f"Cleanup finished for {tui_game_id} / {internal_game_id}"
-                )
-
-            else:
-                # Log if internal ID wasn't found in the map at all
-                self.log.warning(
-                    f"Received 'Game Over' but internal_game_id {internal_game_id} not found in game_widget_map."
-                )
-
-            # Return AFTER logging is complete
-            return  # Don't process further updates for a completed game
-        # --- End Game Over Check ---
-
+    def _get_or_create_game_widget(
+        self, progress_data: Dict[str, Any]
+    ) -> Optional[GameWidget]:
+        """Get existing game widget or create a new one if needed."""
         contest_name = progress_data.get("contest_name", "Unknown")
         game_index = progress_data.get("game_index", -1)
         tui_game_id = f"{contest_name}/Game {game_index}"
-        progress_text = progress_data.get("text")
+        internal_game_id = progress_data.get("internal_game_id")
+        if not internal_game_id:  # Early return if no valid ID
+            self.log.error("Missing internal_game_id in progress data")
+            return None
+
+        # Create unique internal ID with consistent format
+        unique_internal_id = f"{contest_name}_game_{internal_game_id}"
+        self.log.info(f"Using unique internal ID: {unique_internal_id}")
+
         full_data = progress_data.get("full_data")
-
-        # Handle KB update status - now we'll use the text directly
-        if progress_data.get("updating_kb"):
-            # Use the provided text directly
-            progress_text = progress_data.get("text", "")
-
         widget = self.active_games.get(tui_game_id)
 
-        # If widget doesn't exist AND we have full data, create it
+        # Create new widget if needed
         if widget is None and full_data:
             self.log.info(f"Creating widget {tui_game_id} from progress callback")
             widget = GameWidget()
             try:
                 # Mount first
                 self.query_one(ActiveGamesContainer).mount(widget)
-                # Then add to dicts
+                # Then add to dicts using the unique internal ID
                 self.active_games[tui_game_id] = widget
-                self.game_widget_map[internal_game_id] = tui_game_id
+                self.game_widget_map[unique_internal_id] = tui_game_id
                 # Apply the full data immediately
                 widget.update_all(
                     tui_game_id,
@@ -542,9 +534,7 @@ class TournamentTUI(App[None]):
                     full_data.get("townspeople_alive", -1),
                 )
                 # Also apply the current progress text if any
-                widget.progress_text = (
-                    progress_text if progress_text is not None else ""
-                )
+                widget.progress_text = progress_data.get("text", "")
                 widget.kb_update_text = ""  # Always start with empty kb_update_text
 
             except Exception as e:
@@ -554,37 +544,48 @@ class TournamentTUI(App[None]):
                 # Clean up if creation failed partially
                 if tui_game_id in self.active_games:
                     del self.active_games[tui_game_id]
-                if internal_game_id in self.game_widget_map:
-                    del self.game_widget_map[internal_game_id]
-                widget = None  # Ensure widget is None if failed
+                if unique_internal_id in self.game_widget_map:
+                    del self.game_widget_map[unique_internal_id]
+                return None
 
-        # If widget exists (or was just created), update progress text and potentially full data
-        if widget:
-            # Update full data if provided
-            if full_data:
-                widget.update_all(
-                    tui_game_id,
-                    full_data.get("mafia_model", widget.mafia_model),
-                    full_data.get("town_model", widget.town_model),
-                    full_data.get("phase", widget.phase),
-                    full_data.get("day_count", widget.day_count),
-                    full_data.get("mafia_alive", widget.mafia_alive),
-                    full_data.get("townspeople_alive", widget.townspeople_alive),
-                )
-            # Always update progress text
-            if progress_text is not None:
-                widget.progress_text = progress_text
-            # Clear kb_update_text if requested
-            if progress_data.get("clear_kb_status"):
-                widget.kb_update_text = ""
-        else:
-            # Widget doesn't exist and we didn't have full data to create it
-            if phase_name != "Game Over":  # Only log warning if not game over
-                self.log.warning(
-                    f"Widget {tui_game_id} not found and no full data in callback for {internal_game_id}. Progress: {progress_text}"
-                )
+        elif not widget and progress_data.get("phase_name") != "Game Over":
+            # Only log warning if not game over
+            self.log.warning(
+                f"Widget {tui_game_id} not found and no full data in callback for {unique_internal_id}. Progress: {progress_data.get('text')}"
+            )
 
-    # ----------------------------------
+        return widget
+
+    def _update_widget_state(
+        self, widget: GameWidget, progress_data: Dict[str, Any]
+    ) -> None:
+        """Update an existing widget with new game state."""
+        full_data = progress_data.get("full_data")
+        progress_text = progress_data.get("text")
+
+        # Handle KB update status - show notes updating in progress text only
+        if progress_data.get("updating_kb"):
+            # Keep the notes update in progress_text
+            widget.kb_update_text = ""
+        elif progress_data.get("clear_kb_status"):
+            widget.kb_update_text = ""
+
+        # Update full data if provided
+        if full_data:
+            widget.update_all(
+                progress_data.get("contest_name", "Unknown")
+                + f"/Game {progress_data.get('game_index', -1)}",
+                full_data.get("mafia_model", widget.mafia_model),
+                full_data.get("town_model", widget.town_model),
+                full_data.get("phase", widget.phase),
+                full_data.get("day_count", widget.day_count),
+                full_data.get("mafia_alive", widget.mafia_alive),
+                full_data.get("townspeople_alive", widget.townspeople_alive),
+            )
+
+        # Update progress text
+        if progress_text is not None:
+            widget.progress_text = progress_text
 
     # --- Game Completion Tracking ---
     def _increment_total_games(self) -> None:

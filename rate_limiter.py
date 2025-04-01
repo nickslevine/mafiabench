@@ -101,12 +101,12 @@ class GlobalRateLimiter:
                     f"  Avg Wait Time: {avg_wait:.2f}s per limited request\n"
                     f"  Current RPS: {self.requests_per_second}"
                 )
-            else:
-                logger.warning(
-                    f"Rate Limiting Stats (last {self._window_size:.1f}s):\n"
-                    f"  Requests per second: {total_requests / 10.0}\n"
-                    f"  Current RPS: {self.requests_per_second}"
-                )
+            # else:
+            #     logger.warning(
+            #         f"Rate Limiting Stats (last {self._window_size:.1f}s):\n"
+            #         f"  Requests per second: {total_requests / 10.0}\n"
+            #         f"  Current RPS: {self.requests_per_second}"
+            #     )
             self._last_log_time = current_time
 
     async def acquire(self) -> None:
