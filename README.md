@@ -60,7 +60,8 @@ TODO:
 
 - check summaries are working
 - implement tournament. 
-    - "round 2 pairings" -> round increments? 
-    - interactive logging
     - check logic. 
 
+    - show more event updates in tui? 
+    - fix bugs: completed games disappearing. 
+    - serialization. 

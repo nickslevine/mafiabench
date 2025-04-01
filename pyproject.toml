@@ -13,3 +13,8 @@ dependencies = [
     "scipy>=1.15.2",
     "textual>=3.0.0",
 ]
+
+[dependency-groups]
+dev = [
+    "textual-dev>=1.7.0",
+]

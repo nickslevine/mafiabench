@@ -50,7 +50,7 @@ def main():
     parser.add_argument(
         "--concurrent-games",
         type=int,
-        default=4,
+        default=20,
         help="Number of games to run concurrently per contest",
     )
 
@@ -108,3 +108,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# uv run python run_tui.py --models google/gemma-2-9b-it meta-llama/llama-3.1-8b-instruct qwen/qwen-2.5-7b-instruct google/gemini-flash-1.5-8b --players-per-game 4 --mafia-per-game 1
+# uv run textual run --dev run_tui.py --models google/gemma-2-9b-it meta-llama/llama-3.1-8b-instruct qwen/qwen-2.5-7b-instruct google/gemini-flash-1.5-8b --players-per-game 4 --mafia-per-game 1

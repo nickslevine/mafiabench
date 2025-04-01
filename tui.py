@@ -6,16 +6,19 @@ from textual.binding import Binding
 from typing import Dict, List, Tuple, Any, TypeVar, Optional
 
 from tournament import Tournament, GameStats
+# Import ProgressCallback from game, not directly
+# from game import ProgressCallback
 
 # Define types for DataTable generics
 T = TypeVar("T")
 
 
-class RoundStatus(Static):
-    """A widget to display the current round status"""
+class TournamentStatus(Static):
+    """A widget to display tournament round and game status"""
 
     current_round = reactive(0)
     total_rounds = reactive(0)
+    total_games_completed = reactive(0)  # New reactive property
 
     def on_mount(self) -> None:
         """Called when widget is added to the app"""
@@ -29,13 +32,20 @@ class RoundStatus(Static):
         """Called when total_rounds changes"""
         self.update_content()
 
+    def watch_total_games_completed(self, total_games: int) -> None:
+        """Called when total_games_completed changes"""
+        self.update_content()
+
     def update_content(self) -> None:
         """Update the content of the widget"""
-        self.update(f"Round {self.current_round} of {self.total_rounds}")
-        self.styles.background = "#2d2d2d"
-        self.styles.color = "#ffffff"
-        self.styles.padding = (1, 2)
-        self.styles.border = ("heavy", "#666666")
+        self.update(
+            f"Round {self.current_round} of {self.total_rounds} | Games Completed: {self.total_games_completed}"
+        )
+        # Remove style settings, now handled by CSS
+        # self.styles.background = "#2d2d2d"
+        # self.styles.color = "#ffffff"
+        # self.styles.padding = (1, 2)
+        # self.styles.border = ("heavy", "#666666")
 
 
 class ELORankingsTable(DataTable[str]):
@@ -108,6 +118,8 @@ class GameWidget(Static):
     day_count = reactive(0)
     mafia_alive = reactive(0)
     townspeople_alive = reactive(0)
+    progress_text = reactive("")  # Add progress text property
+    kb_update_text = reactive("")  # Add knowledge base update text property
 
     def on_mount(self) -> None:
         """Called when widget is added to the app"""
@@ -134,6 +146,7 @@ class GameWidget(Static):
         self.day_count = day_count
         self.mafia_alive = mafia_alive
         self.townspeople_alive = townspeople_alive
+        # Keep existing progress text and kb_update_text until explicitly cleared by callback
 
     def watch_game_id(self, game_id: str) -> None:
         self.update_content()
@@ -145,11 +158,21 @@ class GameWidget(Static):
         self.update_content()
 
     def watch_phase(self, old_phase: str, new_phase: str) -> None:
-        """Flash the border when the phase changes."""
+        """Flash the border and clear progress when the phase changes."""
         self.update_content()
         # Don't flash on initial mount (old_phase might be default)
         if old_phase != new_phase:
+            # Clear progress text when phase truly changes
+            self.progress_text = ""
             self._flash_border()
+
+    def watch_progress_text(self, progress_text: str) -> None:
+        """Update content when progress text changes"""
+        self.update_content()
+
+    def watch_kb_update_text(self, kb_update_text: str) -> None:
+        """Update content when knowledge base update text changes"""
+        self.update_content()
 
     def _flash_border(self) -> None:
         """Highlight the border briefly."""
@@ -186,11 +209,21 @@ class GameWidget(Static):
         if len(town_display) > 20:
             town_display = town_display[:17] + "..."
 
+        # Add progress text and KB update text if they exist
+        status_line = ""
+        if self.progress_text:
+            status_line += f"[i]{self.progress_text}[/i]"
+        if self.kb_update_text:
+            if status_line:
+                status_line += " | "
+            status_line += f"[cyan]{self.kb_update_text}[/cyan]"
+        status_display = f" ({status_line})" if status_line else ""
+
         content = (
             f"[b]{self.game_id}[/b]\n"
             f"[red]Mafia[/red]: {mafia_display}\n"
             f"[green]Town[/green]: {town_display}\n"
-            f"Phase: [{phase_color}]{self.phase.capitalize()}[/] (Day {self.day_count})\n"
+            f"Phase: [{phase_color}]{self.phase.capitalize()}[/] (Day {self.day_count}){status_display}\n"
             f"Living: [red]{self.mafia_alive}[/red] Mafia, [green]{self.townspeople_alive}[/green] Town"
         )
         self.update(content)
@@ -216,21 +249,24 @@ class TournamentTUI(App[None]):
     CSS = """
     Screen {
         background: #1e1e1e;
+        layout: vertical; 
     }
     
-    RoundStatus {
-        dock: top;
+    TournamentStatus { 
         height: 3;
-        margin: 1 1;
+        padding: 0 2;
         text-align: center;
         text-style: bold;
+        border: thick #666666;
+        background: #2d2d2d;
+        color: white;
     }
     
     #grid {
         grid-size: 2;
         grid-gutter: 1;
         margin: 1 1;
-        height: 100%;
+        height: 90%; /* Try reducing height */
     }
     
     ELORankingsTable {
@@ -257,10 +293,14 @@ class TournamentTUI(App[None]):
         Binding("d", "toggle_dark", "Toggle Dark Mode"),
     ]
 
-    # Keep track of game widgets
+    # Map internal game_id (from Game class) to the TUI's game widget ID
+    game_widget_map: Dict[str, str] = {}
+    # Keep track of game widgets using TUI ID
     active_games: Dict[str, GameWidget] = {}
     # Store previous ratings to calculate changes
     previous_ratings: Dict[str, float] = {}
+    # Track total games completed
+    total_games_completed_count: int = 0
 
     def __init__(self, tournament: Tournament) -> None:
         """Initialize the app with a tournament"""
@@ -274,9 +314,9 @@ class TournamentTUI(App[None]):
         yield Header(show_clock=True)
 
         # Tournament status
-        round_status = RoundStatus()
-        round_status.total_rounds = self.tournament.num_rounds
-        yield round_status
+        tournament_status = TournamentStatus()
+        tournament_status.total_rounds = self.tournament.num_rounds
+        yield tournament_status
 
         # Main grid with rankings and games
         with Grid(id="grid"):
@@ -317,7 +357,179 @@ class TournamentTUI(App[None]):
         await self.tournament.run_tournament()
 
         # Tournament is complete - show final results
-        self.query_one(RoundStatus).update("Tournament Complete!")
+        # Keep final game count visible
+        final_text = (
+            f"Tournament Complete! | Total Games: {self.total_games_completed_count}"
+        )
+        self.query_one(TournamentStatus).update(final_text)
+
+    # --- Progress Callback Handling ---
+    def update_game_progress(self, **kwargs: Any) -> None:
+        """Callback function passed to Game instances. Receives kwargs."""
+        # Schedule the update on the main thread, passing the whole dict
+        self.call_later(self._do_update_game_progress, kwargs)
+
+    def _do_update_game_progress(self, progress_data: Dict[str, Any]) -> None:
+        """Safely updates the GameWidget from the main thread using received data.
+        Also handles widget creation on first full update and removal on game over.
+        """
+        internal_game_id = progress_data.get("internal_game_id")
+        if not internal_game_id:
+            self.log.error("Progress update missing internal_game_id")
+            return
+
+        # --- Check for Game Over ---
+        phase_name = progress_data.get("phase_name")
+        if phase_name == "Game Over":
+            self.log.info(
+                f"Game Over detected for internal_game_id: {internal_game_id}"
+            )
+
+            self._increment_total_games()
+            tui_game_id = self.game_widget_map.get(internal_game_id)
+
+            if tui_game_id:
+                self.log.info(
+                    f"Found TUI ID {tui_game_id} for internal ID {internal_game_id}"
+                )
+                widget_to_remove = self.active_games.get(tui_game_id)
+
+                if widget_to_remove:
+                    self.log.info(
+                        f"Found widget {tui_game_id} in active_games. Attempting removal."
+                    )
+                    try:
+                        self.log.info(f"Calling remove() for widget {tui_game_id}")
+                        widget_to_remove.remove()  # Remove widget from layout
+                        self.log.info(
+                            f"Successfully called remove() for widget {tui_game_id}"
+                        )
+                    except Exception as e:
+                        self.log.error(
+                            f"Error calling remove() for widget {tui_game_id}: {e}"
+                        )
+                else:
+                    self.log.warning(
+                        f"Widget {tui_game_id} not found in active_games dictionary."
+                    )
+
+                # Clean up tracking dictionaries regardless of widget removal success
+                self.log.info(
+                    f"Attempting cleanup for {tui_game_id} / {internal_game_id}"
+                )
+                if tui_game_id in self.active_games:
+                    self.log.info(f"Deleting {tui_game_id} from active_games")
+                    del self.active_games[tui_game_id]
+                if internal_game_id in self.game_widget_map:
+                    self.log.info(f"Deleting {internal_game_id} from game_widget_map")
+                    del self.game_widget_map[internal_game_id]
+                self.log.info(
+                    f"Cleanup finished for {tui_game_id} / {internal_game_id}"
+                )
+
+            else:
+                # Log if internal ID wasn't found in the map at all
+                self.log.warning(
+                    f"Received 'Game Over' but internal_game_id {internal_game_id} not found in game_widget_map."
+                )
+
+            # Return AFTER logging is complete
+            return  # Don't process further updates for a completed game
+        # --- End Game Over Check ---
+
+        contest_name = progress_data.get("contest_name", "Unknown")
+        game_index = progress_data.get("game_index", -1)
+        tui_game_id = f"{contest_name}/Game {game_index}"
+        progress_text = progress_data.get("text")
+        full_data = progress_data.get("full_data")
+
+        # Handle KB update status - now we'll use the text directly
+        if progress_data.get("updating_kb"):
+            # Use the provided text directly
+            progress_text = progress_data.get("text", "")
+
+        widget = self.active_games.get(tui_game_id)
+
+        # If widget doesn't exist AND we have full data, create it
+        if widget is None and full_data:
+            self.log.info(f"Creating widget {tui_game_id} from progress callback")
+            widget = GameWidget()
+            try:
+                # Mount first
+                self.query_one(ActiveGamesContainer).mount(widget)
+                # Then add to dicts
+                self.active_games[tui_game_id] = widget
+                self.game_widget_map[internal_game_id] = tui_game_id
+                # Apply the full data immediately
+                widget.update_all(
+                    tui_game_id,
+                    full_data.get("mafia_model", "?"),
+                    full_data.get("town_model", "?"),
+                    full_data.get("phase", "?"),
+                    full_data.get("day_count", -1),
+                    full_data.get("mafia_alive", -1),
+                    full_data.get("townspeople_alive", -1),
+                )
+                # Also apply the current progress text if any
+                widget.progress_text = (
+                    progress_text if progress_text is not None else ""
+                )
+                widget.kb_update_text = ""  # Always start with empty kb_update_text
+
+            except Exception as e:
+                self.log.error(
+                    f"Failed to create/update widget {tui_game_id} from callback: {e}"
+                )
+                # Clean up if creation failed partially
+                if tui_game_id in self.active_games:
+                    del self.active_games[tui_game_id]
+                if internal_game_id in self.game_widget_map:
+                    del self.game_widget_map[internal_game_id]
+                widget = None  # Ensure widget is None if failed
+
+        # If widget exists (or was just created), update progress text and potentially full data
+        if widget:
+            # Update full data if provided
+            if full_data:
+                widget.update_all(
+                    tui_game_id,
+                    full_data.get("mafia_model", widget.mafia_model),
+                    full_data.get("town_model", widget.town_model),
+                    full_data.get("phase", widget.phase),
+                    full_data.get("day_count", widget.day_count),
+                    full_data.get("mafia_alive", widget.mafia_alive),
+                    full_data.get("townspeople_alive", widget.townspeople_alive),
+                )
+            # Always update progress text
+            if progress_text is not None:
+                widget.progress_text = progress_text
+            # Clear kb_update_text if requested
+            if progress_data.get("clear_kb_status"):
+                widget.kb_update_text = ""
+        else:
+            # Widget doesn't exist and we didn't have full data to create it
+            if phase_name != "Game Over":  # Only log warning if not game over
+                self.log.warning(
+                    f"Widget {tui_game_id} not found and no full data in callback for {internal_game_id}. Progress: {progress_text}"
+                )
+
+    # ----------------------------------
+
+    # --- Game Completion Tracking ---
+    def _increment_total_games(self) -> None:
+        """Increment the total games counter and update the status widget."""
+        self.total_games_completed_count += 1
+
+        def update_status():
+            try:
+                status_widget = self.query_one(TournamentStatus)
+                status_widget.total_games_completed = self.total_games_completed_count
+            except Exception as e:
+                self.log.error(f"Failed to update TournamentStatus: {e}")
+
+        self.call_later(update_status)
+
+    # --------------------------------
 
     def _inject_tournament_hooks(self) -> None:
         """Inject hooks into tournament methods to update the UI"""
@@ -327,155 +539,48 @@ class TournamentTUI(App[None]):
 
         # Patch tournament methods
         async def patched_run_round(*args: Any, **kwargs: Any) -> List[GameStats]:
-            """Patched run_round to update UI before and after running the round"""
-            # Update round number
-            self.query_one(RoundStatus).current_round = (
+            self.query_one(TournamentStatus).current_round = (
                 self.tournament.current_round + 1
             )
-
-            # Store current ratings *before* the round runs to compare later
             self.previous_ratings = self.tournament.get_final_ratings().copy()
-
-            # Run the original method
             result = await original_run_round(*args, **kwargs)
-
-            # Clear active games (round finished)
             await self._clear_active_games()
-
             return result
 
         def patched_update_ratings(*args: Any, **kwargs: Any) -> None:
-            """Patched _update_ratings to update ELO rankings in UI"""
-            # Run the original method to update tournament internal ratings
             original_update_ratings(*args, **kwargs)
-
-            # Now get the new sorted ratings
             get_sorted_ratings = getattr(self.tournament, "_get_model_ratings_sorted")
             current_rankings = get_sorted_ratings()
-
-            # Update the UI table, passing the previous ratings for comparison
             self.query_one(ELORankingsTable).update_rankings(
                 current_rankings, self.previous_ratings
             )
 
-        # Apply patches - we need to use setattr for protected methods
         self.tournament.run_round = patched_run_round
         setattr(self.tournament, "_update_ratings", patched_update_ratings)
 
-        # Also patch Contest.run to track games
+        # Patch Contest init to pass the callback
         from contest import Contest
 
-        original_contest_run = Contest.run
+        original_contest_init = Contest.__init__
 
-        # Create a wrapper that preserves type compatibility
-        async def contest_run_wrapper(
-            self_contest: Any, *args: Any, **kwargs: Any
-        ) -> Any:
-            """Wrapper that preserves the original method's signature but adds our hooks"""
-            # Save original Game methods
-            from game import Game
+        def patched_contest_init(contest_instance: Contest, *args: Any, **kwargs: Any):
+            kwargs["progress_callback"] = self.update_game_progress
+            original_contest_init(contest_instance, *args, **kwargs)
 
-            original_game_run = Game.run
-            original_run_phase = Game.run_phase
-
-            # Create game method wrappers that preserve signatures
-            async def game_run_hook(self_game: Any, *args: Any, **kwargs: Any) -> Any:
-                """Hook into Game.run while preserving its signature"""
-                game_id = f"{self_contest.name}/Game {self_game.game_id}"
-
-                # Update UI with game start
-                await self._update_game_widget(
-                    game_id,
-                    self_game.model_mafia,
-                    self_game.model_townsperson,
-                    str(self_game.phase),
-                    self_game.day_count,
-                    self_game.n_mafia_alive,
-                    self_game.n_townsperson_alive,
-                )
-
-                # Run original game
-                result = await original_game_run(self_game, *args, **kwargs)
-
-                # Update UI with game end
-                await self._remove_game_widget(game_id)
-
-                return result
-
-            async def phase_run_hook(self_game: Any, *args: Any, **kwargs: Any) -> Any:
-                """Hook into Game.run_phase while preserving its signature"""
-                game_id = f"{self_contest.name}/Game {self_game.game_id}"
-
-                # Update UI with phase change
-                await self._update_game_widget(
-                    game_id,
-                    self_game.model_mafia,
-                    self_game.model_townsperson,
-                    str(self_game.phase),
-                    self_game.day_count,
-                    self_game.n_mafia_alive,
-                    self_game.n_townsperson_alive,
-                )
-
-                # Run original phase logic
-                return await original_run_phase(self_game, *args, **kwargs)
-
-            # Apply our hooks (with monkey patching)
-            Game.run = game_run_hook  # type: ignore
-            Game.run_phase = phase_run_hook  # type: ignore
-
-            try:
-                # Run the original contest method
-                return await original_contest_run(self_contest, *args, **kwargs)
-            finally:
-                # Restore original methods
-                Game.run = original_game_run
-                Game.run_phase = original_run_phase
-
-        # Apply the wrapper to Contest.run
-        Contest.run = contest_run_wrapper  # type: ignore
-
-    async def _update_game_widget(
-        self,
-        game_id: str,
-        mafia_model: str,
-        town_model: str,
-        phase: str,
-        day_count: int,
-        mafia_alive: int,
-        townspeople_alive: int,
-    ) -> None:
-        """Create or update a game widget"""
-        # Get games container
-        games_container = self.query_one(ActiveGamesContainer)
-
-        # Create a new widget if it doesn't exist
-        if game_id not in self.active_games:
-            game_widget = GameWidget()
-            games_container.mount(game_widget)
-            self.active_games[game_id] = game_widget
-
-        # Update the widget
-        self.active_games[game_id].update_all(
-            game_id,
-            mafia_model,
-            town_model,
-            phase,
-            day_count,
-            mafia_alive,
-            townspeople_alive,
-        )
-
-    async def _remove_game_widget(self, game_id: str) -> None:
-        """Remove a game widget"""
-        if game_id in self.active_games:
-            self.active_games[game_id].remove()
-            del self.active_games[game_id]
+        Contest.__init__ = patched_contest_init  # type: ignore
 
     async def _clear_active_games(self) -> None:
-        """Clear all active games widgets"""
-        for game_id in list(self.active_games.keys()):
-            await self._remove_game_widget(game_id)
+        """Clear all active games widgets AND the map."""
+
+        def clear():
+            active_container = self.query_one(ActiveGamesContainer)
+            # Remove widgets efficiently
+            active_container.remove_children()
+            # Clear dictionaries
+            self.active_games.clear()
+            self.game_widget_map.clear()
+
+        self.call_later(clear)
 
     def action_toggle_dark(self) -> None:
         """Toggle dark mode"""
@@ -483,4 +588,5 @@ class TournamentTUI(App[None]):
 
     async def action_quit(self) -> None:
         """Quit the application"""
+        # TODO: Consider restoring original patched methods here if needed
         self.exit()

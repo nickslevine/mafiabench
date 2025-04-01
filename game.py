@@ -20,13 +20,18 @@ import random
 import os
 import json
 import prompts
+from typing import Callable, Optional, List, Any, Coroutine, Dict
 
 from rate_limiter import GlobalRateLimiter
+
+# Define the type for the progress callback
+ProgressCallback = Callable[..., None]  # Simple type hint, refine if needed
 
 
 class Game:
     def __init__(
         self,
+        contest_name: str,
         n_players: int,
         n_mafia: int,
         model_mafia: str,
@@ -36,6 +41,7 @@ class Game:
         limiter_requests_per_second: float = 60.0,
         game_id: int | None = None,
         verbose: bool = False,
+        progress_callback: Optional[ProgressCallback] = None,
     ):
         if len(player_names) < n_players:
             raise ValueError(
@@ -43,6 +49,7 @@ class Game:
                 f"Must provide at least {n_players} player names"
             )
 
+        self.contest_name = contest_name
         self.phase: Phase = Phase.INTRO
         self.players: dict[PlayerName, Player] = {}
         self.n_players = n_players
@@ -53,14 +60,18 @@ class Game:
         self.player_names: list[PlayerName] = player_names[0 : self.n_players]
         self.day_count = 0
         self.event_log: EventLog = EventLog()
-        self.game_id: int | None = game_id
+        self.game_index: int = (
+            game_id if game_id is not None else random.randint(1000, 9999)
+        )
+        self.game_id: str = f"game_{self.game_index}"
+        self.progress_callback = progress_callback
+        self.game_over_reported = False  # Add flag to track if game over was reported
 
         self.start_time = None
         self.end_time = None
         self.validate()
 
-        # Configure logging level based on verbosity
-        logger.remove()  # Remove default handler
+        logger.remove()
         log_level = "INFO" if verbose else "WARNING"
         logger.add(sys.stderr, level=log_level)
 
@@ -103,27 +114,27 @@ class Game:
         self.phase = self.phase.next()
 
     @property
-    def n_mafia_alive(self):
+    def n_mafia_alive(self) -> int:
         return sum(
             player.role == Role.MAFIA and player.alive
             for player in self.players.values()
         )
 
     @property
-    def n_townsperson_alive(self):
+    def n_townsperson_alive(self) -> int:
         return sum(
             player.role == Role.TOWNSPERSON and player.alive
             for player in self.players.values()
         )
 
     @property
-    def mafia_names(self):
+    def mafia_names(self) -> List[PlayerName]:
         return [
             player.name for player in self.players.values() if player.role == Role.MAFIA
         ]
 
     @property
-    def mafia_names_alive(self):
+    def mafia_names_alive(self) -> List[PlayerName]:
         return [
             player.name
             for player in self.players.values()
@@ -131,28 +142,86 @@ class Game:
         ]
 
     @property
-    def is_game_over(self):
+    def is_game_over(self) -> bool:
         return (self.n_townsperson_alive <= self.n_mafia_alive) or (
             self.n_mafia_alive == 0
         )
 
     @property
-    def alive_players(self):
+    def alive_players(self) -> List[PlayerName]:
         return [player.name for player in self.players.values() if player.alive]
 
     @property
-    def eliminated_players(self):
+    def eliminated_players(self) -> List[PlayerName]:
         return [player.name for player in self.players.values() if not player.alive]
 
     @property
-    def eliminated_mafia(self):
+    def eliminated_mafia(self) -> List[PlayerName]:
         return [
             player.name
             for player in self.players.values()
             if player.role == Role.MAFIA and not player.alive
         ]
 
+    def _report_progress(
+        self,
+        phase_name: str,
+        step: Optional[int],
+        total: Optional[int],
+        text: Optional[str] = None,
+        updating_kb: bool = False,
+        kb_player_type: Optional[str] = None,
+        clear_kb_status: bool = False,
+    ):
+        """Helper method to safely call the progress callback.
+        Will not report anything if game_over_reported is True.
+        """
+        # Do not report any progress if the game over signal has already been sent.
+        if self.game_over_reported:
+            return
+
+        if self.progress_callback:
+            # Always prepare the full data dict
+            full_data = {
+                "mafia_model": self.model_mafia,
+                "town_model": self.model_townsperson,
+                "phase": str(self.phase),
+                "day_count": self.day_count,
+                "mafia_alive": self.n_mafia_alive,
+                "townspeople_alive": self.n_townsperson_alive,
+            }
+
+            try:
+                self.progress_callback(
+                    # Identifiers
+                    internal_game_id=self.game_id,  # Use internal ID for callback key
+                    contest_name=self.contest_name,
+                    game_index=self.game_index,
+                    # Progress info
+                    phase_name=phase_name,
+                    step=step,
+                    total=total,
+                    text=text,
+                    # Full state data (optional)
+                    full_data=full_data,
+                    # Additional info
+                    updating_kb=updating_kb,
+                    kb_player_type=kb_player_type,
+                    clear_kb_status=clear_kb_status,
+                )
+            except Exception as e:
+                logger.error(f"Progress callback failed for game {self.game_id}: {e}")
+
+    async def run(self) -> GameStats:
+        """Run the game until completion."""
+        self.start_time = time.perf_counter()
+        while not self.is_game_over:
+            await self.run_phase()
+            self.next_phase()
+        return await self.game_over()
+
     async def run_phase(self):
+        """Run a single phase of the game."""
         logger.info(f"Running phase: {self.phase} on day {self.day_count}")
         if self.phase == Phase.DAY:
             await self.run_day()
@@ -163,12 +232,10 @@ class Game:
         else:
             raise ValueError(f"Invalid phase: {self.phase}")
 
-    async def run(self):
-        self.start_time = time.perf_counter()
-        while not self.is_game_over:
-            await self.run_phase()
-            self.next_phase()
-        return await self.game_over()
+        # Check for game over after each phase
+        if self.is_game_over:
+            logger.info("Game over detected after phase completion")
+            self._report_game_over()
 
     async def run_intro(self):
         """
@@ -179,11 +246,18 @@ class Game:
         """
 
         player_order = random.sample(self.alive_players, len(self.alive_players))
-
+        num_players = len(player_order)
         messages: EventLog = EventLog()
 
-        for player in player_order:
-            p: Player = self.players[player]
+        for i, player_name in enumerate(player_order):
+            self._report_progress(
+                "Intro",
+                step=i + 1,
+                total=num_players,
+                text=f"Speaking: {player_name} ({i + 1}/{num_players})",
+            )
+
+            p: Player = self.players[player_name]
             role_prompt = self.get_role_prompt(p)
 
             response = await p.get_response(
@@ -205,24 +279,47 @@ class Game:
             messages.add(evt)
             self.event_log.add(evt)
 
+        self._report_progress("Intro", step=None, total=None, text=None)
         await self.update_knowledge_bases(Phase.INTRO, str(messages))
 
     async def update_knowledge_bases(self, phase: Phase, phase_context: str):
-        summary_tasks = []
+        """Update knowledge bases for all relevant players after a phase."""
+        summary_tasks: List[Coroutine[Any, Any, str]] = []  # Correct type hint
         if phase == Phase.NIGHT:
             players_to_update = self.mafia_names_alive
+            player_type = "Mafia"
         else:
             players_to_update = self.alive_players
+            player_type = "Players"
+
+        # Report start of KB updates with new phrasing
+        self._report_progress(
+            phase_name=str(phase),
+            step=None,
+            total=None,
+            text=f"{player_type} updating their notes...",  # New phrasing
+            updating_kb=True,
+            kb_player_type=player_type,
+        )
 
         for player in players_to_update:
             p: Player = self.players[player]
-            summary_tasks.append(  # type: ignore
-                self.get_and_update_player_summary(p, phase, phase_context)  # type: ignore
+            summary_tasks.append(
+                self.get_and_update_player_summary(p, phase, phase_context)
             )
-        await asyncio.gather(*summary_tasks)  # type: ignore
+        await asyncio.gather(*summary_tasks)
+
+        # Clear KB update status and text
+        self._report_progress(
+            phase_name=str(phase),
+            step=None,
+            total=None,
+            text=None,
+            clear_kb_status=True,
+        )
 
     async def get_and_update_player_summary(
-        self, player: Player, phase: str, phase_context: str
+        self, player: Player, phase: Phase, phase_context: str
     ) -> str:
         """
         Get player's response to the summary prompt and update their knowledge base.
@@ -239,7 +336,7 @@ class Game:
             prompts.get_summary_prompt(
                 player.name,
                 str(player.role),
-                phase,
+                str(phase),  # Convert Phase enum to string
                 self.day_count,
                 phase_context,
                 player.knowledge_base,
@@ -254,13 +351,22 @@ class Game:
     async def run_day(self):
         await self.run_day_discussion()
         await self.run_day_vote()
+        self._report_progress("Day Vote", step=None, total=None, text=None)
 
     async def run_day_discussion(self):
         player_order = random.sample(self.alive_players, len(self.alive_players))
-
+        num_players = len(player_order)
         messages: EventLog = EventLog()
-        for player in player_order:
-            p: Player = self.players[player]
+
+        for i, player_name in enumerate(player_order):
+            self._report_progress(
+                "Day Discussion",
+                step=i + 1,
+                total=num_players,
+                text=f"Speaking: {player_name} ({i + 1}/{num_players})",
+            )
+
+            p: Player = self.players[player_name]
             role_prompt = self.get_role_prompt(p)
 
             response = await p.get_response(
@@ -286,9 +392,10 @@ class Game:
             messages.add(evt)
             self.event_log.add(evt)
 
+        self._report_progress("Day Discussion", step=None, total=None, text=None)
         await self.update_knowledge_bases(Phase.DAY, str(messages))
 
-    async def get_day_vote(self, player: Player):
+    async def get_day_vote(self, player: Player) -> Dict[str, str]:
         role_prompt = self.get_role_prompt(player)
         response = await player.get_response(
             prompts.get_day_vote_phase_prompt(
@@ -299,10 +406,11 @@ class Game:
                 player.name,
             )
         )
-
+        # Consider reporting progress *after* vote received?
+        # self._report_progress("Day Vote", step=?, total=?, text=f"Vote received from {player.name}")
         return dict(player=player.name, vote=response)
 
-    async def get_night_vote(self, player: Player):
+    async def get_night_vote(self, player: Player) -> Dict[str, str]:
         response = await player.get_response(
             prompts.get_night_vote_phase_prompt(
                 player.name,
@@ -314,37 +422,47 @@ class Game:
                 self.day_count,
             )
         )
-
+        # Consider reporting progress *after* vote received?
+        # self._report_progress("Night Vote", step=?, total=?, text=f"Vote received from {player.name}")
         return dict(player=player.name, vote=response)
 
     async def run_day_vote(self):
-        vote_tasks = []
-        for player in self.alive_players:
-            p: Player = self.players[player]
+        vote_tasks: List[Coroutine[Any, Any, Dict[str, str]]] = []
+        num_voters = len(self.alive_players)
+        self._report_progress(
+            "Day Vote", step=0, total=num_voters, text="Collecting votes..."
+        )
 
-            vote_tasks.append(self.get_day_vote(p))  # type: ignore
-        results = await asyncio.gather(*vote_tasks)  # type: ignore
+        for player_name in self.alive_players:
+            p: Player = self.players[player_name]
+            vote_tasks.append(self.get_day_vote(p))
+
+        results: List[Dict[str, str]] = await asyncio.gather(*vote_tasks)
+
+        self._report_progress(
+            "Day Vote", step=num_voters, total=num_voters, text="Tallying votes..."
+        )
 
         votes: dict[PlayerName, PlayerName] = {}
-
-        for result in results:  # type: ignore
-            player = self.players[result["player"]]
-            # Split on whitespace and take the last entry as the vote
-            vote = result["vote"].strip().split()[-1] if result["vote"].strip() else ""  # type: ignore
-            if vote not in self.alive_players and vote != player.name:
+        for result in results:
+            player_name = result["player"]
+            player = self.players[PlayerName(player_name)]
+            vote = result["vote"].strip().split()[-1] if result["vote"].strip() else ""
+            if vote not in self.alive_players and vote != player_name:
                 player.invalid_response_count += 1
                 logger.info(f"{player.name} made an invalid vote: {vote}")
             else:
-                votes[player.name] = vote  # type: ignore
+                votes[player.name] = PlayerName(vote)
 
         if not votes:
             logger.warning("No valid votes cast")
+            self._report_progress("Day Vote", step=None, total=None, text=None)
             return
-
         vote_counts = Counter(votes.values())
         top_votes = vote_counts.most_common()
         if not top_votes:
             logger.warning("No votes to count")
+            self._report_progress("Day Vote", step=None, total=None, text=None)
             return
 
         max_votes = top_votes[0][1]
@@ -352,44 +470,63 @@ class Game:
             choice for choice, vote_count in top_votes if vote_count == max_votes
         ]
         eliminated_player = random.choice(tied_choices)
-
         logger.info(f"Eliminated player: {eliminated_player}")
-
         self.players[eliminated_player].alive = False
+
+        # Check for game over immediately after elimination
+        if self.is_game_over:
+            logger.info("Game over detected after day vote elimination")
+            self._report_game_over()
+            return
 
         evt = VoteSummaryEvent(
             EventType.DAY_VOTE_SUMMARY,
-            votes,
+            votes,  # type: ignore
             eliminated_player,
             Phase.DAY,
             self.day_count,
         )
         self.event_log.add(evt)
 
-        # print(evt)
-
         await self.update_knowledge_bases(Phase.DAY, str(evt))
 
-    def get_role_prompt(self, player: Player):
+    def get_role_prompt(self, player: Player) -> str:
+        """Get the appropriate role prompt for a player."""
         if player.role == Role.MAFIA:
             return prompts.get_mafia_role_prompt(player.name, self.mafia_names)
         else:
             return prompts.get_townsperson_role_prompt(player.name)
 
     async def run_night(self):
+        """Run the night phase."""
         await self.run_night_discussion()
         await self.run_night_vote()
+        self._report_progress("Night Vote", step=None, total=None, text=None)
         self.day_count += 1
 
     async def run_night_discussion(self):
-        mafia_names = random.sample(self.mafia_names_alive, len(self.mafia_names_alive))
+        mafia_names_alive = self.mafia_names_alive
+        if not mafia_names_alive:
+            self._report_progress("Night Discussion", step=None, total=None, text=None)
+            return
+
+        mafia_order = random.sample(mafia_names_alive, len(mafia_names_alive))
+        num_mafia = len(mafia_order)
         messages: EventLog = EventLog()
-        for player in mafia_names:
-            p: Player = self.players[player]
+
+        for i, player_name in enumerate(mafia_order):
+            self._report_progress(
+                "Night Discussion",
+                step=i + 1,
+                total=num_mafia,
+                text=f"Mafia speaking: {player_name} ({i + 1}/{num_mafia})",
+            )
+
+            p: Player = self.players[player_name]
             response = await p.get_response(
                 prompts.get_night_discussion_phase_prompt(
                     p.name,
-                    mafia_names,
+                    mafia_names_alive,
                     self.alive_players,
                     self.eliminated_players,
                     self.eliminated_mafia,
@@ -409,36 +546,55 @@ class Game:
             messages.add(evt)
             self.event_log.add(evt)
 
+        self._report_progress("Night Discussion", step=None, total=None, text=None)
         await self.update_knowledge_bases(Phase.NIGHT, str(messages))
 
     async def run_night_vote(self):
-        vote_tasks = []
-        for player in self.mafia_names_alive:
-            p: Player = self.players[player]
+        """Run the night voting phase."""
+        mafia_names_alive = self.mafia_names_alive
+        if not mafia_names_alive:
+            self._report_progress("Night Vote", step=None, total=None, text=None)
+            return
 
-            vote_tasks.append(self.get_night_vote(p))  # type: ignore
-        results = await asyncio.gather(*vote_tasks)  # type: ignore
+        vote_tasks: List[Coroutine[Any, Any, Dict[str, str]]] = []
+        num_voters = len(mafia_names_alive)
+        self._report_progress(
+            "Night Vote", step=0, total=num_voters, text="Mafia collecting votes..."
+        )
+
+        for player_name in mafia_names_alive:
+            p: Player = self.players[player_name]
+            vote_tasks.append(self.get_night_vote(p))
+
+        results: List[Dict[str, str]] = await asyncio.gather(*vote_tasks)
+
+        self._report_progress(
+            "Night Vote",
+            step=num_voters,
+            total=num_voters,
+            text="Mafia tallying votes...",
+        )
 
         votes: dict[PlayerName, PlayerName] = {}
-
-        for result in results:  # type: ignore
-            player = self.players[result["player"]]
-            # Split on whitespace and take the last entry as the vote
-            vote = result["vote"].strip().split()[-1] if result["vote"].strip() else ""  # type: ignore
-            if vote not in self.alive_players and vote != player.name:
+        for result in results:
+            player_name = result["player"]
+            player = self.players[PlayerName(player_name)]
+            vote = result["vote"].strip().split()[-1] if result["vote"].strip() else ""
+            if vote not in self.alive_players and vote != player_name:
                 player.invalid_response_count += 1
                 logger.info(f"{player.name} made an invalid vote: {vote}")
             else:
-                votes[player.name] = vote  # type: ignore
+                votes[player.name] = PlayerName(vote)
 
         if not votes:
-            logger.warning("No valid votes cast")
+            logger.warning("No valid mafia votes cast")
+            self._report_progress("Night Vote", step=None, total=None, text=None)
             return
-
         vote_counts = Counter(votes.values())
         top_votes = vote_counts.most_common()
         if not top_votes:
             logger.warning("No votes to count")
+            self._report_progress("Night Vote", step=None, total=None, text=None)
             return
 
         max_votes = top_votes[0][1]
@@ -446,10 +602,14 @@ class Game:
             choice for choice, vote_count in top_votes if vote_count == max_votes
         ]
         eliminated_player = random.choice(tied_choices)
-
         logger.info(f"Eliminated player: {eliminated_player}")
-
         self.players[eliminated_player].alive = False
+
+        # Check for game over immediately after elimination
+        if self.is_game_over:
+            logger.info("Game over detected after night vote elimination")
+            self._report_game_over()
+            return
 
         evt = MafiaKillEvent(
             EventType.MAFIA_KILL,
@@ -460,8 +620,6 @@ class Game:
         self.event_log.add(evt)
 
         await self.update_knowledge_bases(Phase.DAY, str(evt))
-        if self.is_game_over:
-            logger.info("Game over!")
 
     def calc_stats(self) -> GameStats:
         winner = Role.MAFIA if self.n_mafia_alive > 0 else Role.TOWNSPERSON
@@ -514,19 +672,39 @@ class Game:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
         with open(
-            f"results/{self.model_mafia.replace('/', '_')}_{self.model_townsperson.replace('/', '_')}_{self.n_players}_{self.n_mafia}_{timestamp}_{self.game_id if self.game_id else ''}.json",
+            f"results/{self.model_mafia.replace('/', '_')}_{self.model_townsperson.replace('/', '_')}_{self.n_players}_{self.n_mafia}_{timestamp}_{self.game_id}.json",
             "w",
         ) as f:
             json.dump(stats.to_dict(), f)
 
         with open(
-            f"logs/{self.model_mafia.replace('/', '_')}_{self.model_townsperson.replace('/', '_')}_{self.n_players}_{self.n_mafia}_{timestamp}_{self.game_id if self.game_id else ''}.json",
+            f"logs/{self.model_mafia.replace('/', '_')}_{self.model_townsperson.replace('/', '_')}_{self.n_players}_{self.n_mafia}_{timestamp}_{self.game_id}.json",
             "w",
         ) as f:
             json.dump(self.event_log.to_dict(), f)
 
     async def game_over(self) -> GameStats:
+        """Handle game completion and return final stats."""
         self.end_time = time.perf_counter()
         stats = self.calc_stats()
         self.serialize(stats)
+        # Game Over progress already reported in run_phase when is_game_over first became true
         return stats
+
+    def _report_game_over(self):
+        """Helper method to report game over exactly once."""
+        # Check flag *before* logging or reporting
+        if not self.game_over_reported:
+            self.game_over_reported = True  # Set flag immediately
+            logger.info(f"Reporting game over for {self.game_id}")  # Log with ID
+            # Directly call progress callback - bypasses the check in _report_progress
+            if self.progress_callback:
+                try:
+                    self.progress_callback(
+                        phase_name="Game Over", internal_game_id=self.game_id
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Game Over progress callback failed for game {self.game_id}: {e}"
+                    )
+            # No need to call _report_progress here anymore

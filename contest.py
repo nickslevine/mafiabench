@@ -2,7 +2,7 @@ import datetime
 import json
 from mafia import ContestStats, GameStats, PlayerName
 from rate_limiter import GlobalRateLimiter
-from game import Game
+from game import Game, ProgressCallback
 import asyncio
 import time
 
@@ -27,6 +27,7 @@ class Contest:
         temperature: float = 0.7,
         limiter_requests_per_second: float = 60.0,
         n_concurrent_games: int = 5,
+        progress_callback: Optional[ProgressCallback] = None,
     ):
         self.name = name
         self.n_games = n_games
@@ -38,6 +39,7 @@ class Contest:
         self.temperature = temperature
         self.limiter_requests_per_second = limiter_requests_per_second
         self.n_concurrent_games = n_concurrent_games
+        self.progress_callback = progress_callback
         self.start_time = None
         self.end_time = None
 
@@ -50,20 +52,22 @@ class Contest:
         ]
         game_tasks: List[Coroutine[Any, Any, GameStats]] = []
 
-        for i, mafia_model in enumerate(self.mafia_models):
-            if mafia_model == self.model_a:
-                townsperson_model = self.model_b
+        for i, mafia_model_for_game in enumerate(self.mafia_models):
+            if mafia_model_for_game == self.model_a:
+                townsperson_model_for_game = self.model_b
             else:
-                townsperson_model = self.model_a
+                townsperson_model_for_game = self.model_a
 
             game = Game(
-                self.n_players,
-                self.n_mafia,
-                mafia_model,
-                townsperson_model,
-                [name for name in self.player_names],
-                self.temperature,
+                contest_name=self.name,
+                n_players=self.n_players,
+                n_mafia=self.n_mafia,
+                model_mafia=mafia_model_for_game,
+                model_townsperson=townsperson_model_for_game,
+                player_names=[name for name in self.player_names],
+                temperature=self.temperature,
                 game_id=i,
+                progress_callback=self.progress_callback,
             )
             game_tasks.append(game.run())
 
