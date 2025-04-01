@@ -26,6 +26,8 @@ from rate_limiter import GlobalRateLimiter
 
 # Define the type for the progress callback
 ProgressCallback = Callable[..., None]  # Simple type hint, refine if needed
+# --- Define the type for the event callback ---
+EventCallback = Callable[[Dict[str, Any]], None]
 
 
 class Game:
@@ -42,6 +44,7 @@ class Game:
         game_id: int | None = None,
         verbose: bool = False,
         progress_callback: Optional[ProgressCallback] = None,
+        event_callback: Optional[EventCallback] = None,  # Add event_callback parameter
     ):
         if len(player_names) < n_players:
             raise ValueError(
@@ -65,6 +68,7 @@ class Game:
         )
         self.game_id: str = f"game_{self.game_index}"
         self.progress_callback = progress_callback
+        self.event_callback = event_callback  # Store event_callback
         self.game_over_reported = False  # Add flag to track if game over was reported
 
         self.start_time = None
@@ -162,6 +166,24 @@ class Game:
             for player in self.players.values()
             if player.role == Role.MAFIA and not player.alive
         ]
+
+    def _report_event(self, event_type: str, data: Dict[str, Any]):
+        """Helper method to safely call the event callback."""
+        if self.game_over_reported:
+            return  # Don't report events after game over
+
+        if self.event_callback:
+            event_data = {
+                "internal_game_id": self.game_id,
+                "contest_name": self.contest_name,
+                "game_index": self.game_index,
+                "event_type": event_type,
+                "data": data,  # Nested dictionary for specific event info
+            }
+            try:
+                self.event_callback(event_data)
+            except Exception as e:
+                logger.error(f"Event callback failed for game {self.game_id}: {e}")
 
     def _report_progress(
         self,
@@ -279,6 +301,10 @@ class Game:
             messages.add(evt)
             self.event_log.add(evt)
 
+            # --- Report Speech Event ---
+            self._report_event("SPEECH", {"player": p.name, "text": response})
+            # -------------------------
+
         self._report_progress("Intro", step=None, total=None, text=None)
         await self.update_knowledge_bases(Phase.INTRO, str(messages))
 
@@ -392,6 +418,10 @@ class Game:
             messages.add(evt)
             self.event_log.add(evt)
 
+            # --- Report Speech Event ---
+            self._report_event("SPEECH", {"player": p.name, "text": response})
+            # -------------------------
+
         self._report_progress("Day Discussion", step=None, total=None, text=None)
         await self.update_knowledge_bases(Phase.DAY, str(messages))
 
@@ -473,6 +503,10 @@ class Game:
         logger.info(f"Eliminated player: {eliminated_player}")
         self.players[eliminated_player].alive = False
 
+        # --- Report Day Elimination Event ---
+        self._report_event("VOTE_SUMMARY", {"eliminated": eliminated_player})
+        # ---------------------------------
+
         # Check for game over immediately after elimination
         if self.is_game_over:
             logger.info("Game over detected after day vote elimination")
@@ -546,6 +580,10 @@ class Game:
             messages.add(evt)
             self.event_log.add(evt)
 
+            # --- Report Speech Event (Mafia only) ---
+            self._report_event("SPEECH", {"player": p.name, "text": response})
+            # --------------------------------------
+
         self._report_progress("Night Discussion", step=None, total=None, text=None)
         await self.update_knowledge_bases(Phase.NIGHT, str(messages))
 
@@ -604,6 +642,10 @@ class Game:
         eliminated_player = random.choice(tied_choices)
         logger.info(f"Eliminated player: {eliminated_player}")
         self.players[eliminated_player].alive = False
+
+        # --- Report Night Elimination Event ---
+        self._report_event("MAFIA_KILL", {"eliminated": eliminated_player})
+        # ----------------------------------
 
         # Check for game over immediately after elimination
         if self.is_game_over:

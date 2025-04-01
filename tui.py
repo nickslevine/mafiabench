@@ -1,8 +1,9 @@
 from textual.app import App, ComposeResult
 from textual.reactive import reactive
-from textual.widgets import Header, Footer, Static, DataTable
+from textual.widgets import Header, Footer, Static, DataTable, RichLog
 from textual.containers import Container, Vertical, Grid
 from textual.binding import Binding
+from rich.text import Text
 from typing import Dict, List, Tuple, Any, TypeVar, Optional
 
 from tournament import Tournament, GameStats
@@ -240,6 +241,19 @@ class ActiveGamesContainer(Vertical):
         self.border_title = "Active Games"
 
 
+# --- Add EventLogWidget Definition ---
+class EventLogWidget(RichLog):
+    """A widget to display a continuous stream of game events."""
+
+    def on_mount(self) -> None:
+        """Set up the log widget."""
+        self.border_title = "Event Log"
+        self.styles.border = ("heavy", "#666666")
+
+
+# --- End EventLogWidget Definition ---
+
+
 class TournamentTUI(App[None]):
     """A Textual app to visualize the tournament"""
 
@@ -249,10 +263,10 @@ class TournamentTUI(App[None]):
     CSS = """
     Screen {
         background: #1e1e1e;
-        layout: vertical; 
+        layout: vertical;
     }
-    
-    TournamentStatus { 
+
+    TournamentStatus {
         height: 3;
         padding: 0 2;
         text-align: center;
@@ -261,30 +275,50 @@ class TournamentTUI(App[None]):
         background: #2d2d2d;
         color: white;
     }
-    
+
     #grid {
         grid-size: 2;
         grid-gutter: 1;
         margin: 1 1;
-        height: 90%; /* Try reducing height */
+        height: 90%;
     }
-    
+
+    /* NEW: Container for the left column widgets */
+    #left-column {
+        display: block; /* Use block layout for vertical stacking */
+        height: 100%;
+        width: 100%;
+    }
+
+    /* Adjust ELO container */
+    #elo-container {
+        height: 60%; /* Allocate top 60% */
+        width: 100%;
+        border: heavy #666666;
+        padding: 0 1;
+    }
+
     ELORankingsTable {
+        /* Table fills its container */
         width: 100%;
         height: 100%;
     }
-    
+
+    /* NEW: Style the Event Log */
+    EventLogWidget {
+        height: 40%; /* Allocate bottom 40% */
+        width: 100%;
+        margin-top: 1; /* Add margin between table and log */
+    }
+
     ActiveGamesContainer {
         overflow-y: auto;
+        height: 100%; /* Ensure it fills the grid cell height */
     }
-    
+
     GameWidget {
         margin: 1 0;
         height: auto;
-    }
-    
-    #elo-container {
-        height: 100%;
     }
     """
 
@@ -313,22 +347,23 @@ class TournamentTUI(App[None]):
         """Create the UI layout"""
         yield Header(show_clock=True)
 
-        # Tournament status
         tournament_status = TournamentStatus()
         tournament_status.total_rounds = self.tournament.num_rounds
         yield tournament_status
 
-        # Main grid with rankings and games
+        # Main grid
         with Grid(id="grid"):
-            # Left column: ELO rankings
-            with Container(id="elo-container") as elo_container:
-                # Set the border title on the container directly
-                elo_container.border_title = "ELO Rankings"
+            # --- Left Column (Vertical Stack) ---
+            with Vertical(id="left-column"):
+                # Top: ELO rankings container
+                with Container(id="elo-container") as elo_container:
+                    elo_container.border_title = "ELO Rankings"
+                    yield ELORankingsTable()
 
-                # Create the table but don't populate it yet
-                yield ELORankingsTable()
+                # Bottom: Event Log
+                yield EventLogWidget(wrap=True, highlight=True)
 
-            # Right column: Active games
+            # --- Right Column: Active games ---
             yield ActiveGamesContainer()
 
         yield Footer()
@@ -531,6 +566,64 @@ class TournamentTUI(App[None]):
 
     # --------------------------------
 
+    # --- Add Event Handling Method ---
+    def _handle_game_event(self, event_data: Dict[str, Any]) -> None:
+        """Receives game events and writes them to the EventLogWidget."""
+        # Schedule the update on the main thread
+        self.call_later(self._do_handle_game_event, event_data)
+
+    def _do_handle_game_event(self, event_data: Dict[str, Any]) -> None:
+        """Safely writes the formatted event to the log from the main thread."""
+        try:
+            log_widget = self.query_one(EventLogWidget)
+
+            game_str = (
+                f"[{event_data.get('contest_name')}/G{event_data.get('game_index')}]"
+            )
+            event_type = event_data.get("event_type", "UNKNOWN")
+            data = event_data.get("data", {})
+
+            # --- Build message using rich.text.Text ---
+            message = Text()
+            message.append(game_str, style="dim")
+            message.append(" ")
+
+            # Customize formatting based on event type
+            if event_type == "SPEECH":
+                player = data.get("player", "?")
+                snippet = data.get("text", "")
+                if len(snippet) > 70:
+                    snippet = snippet[:67] + "..."
+                message.append(player, style="bold")
+                message.append(" said: '")
+                message.append(snippet, style="italic")
+                message.append("'")
+            elif event_type == "VOTE_CAST":
+                voter = data.get("voter", "?")
+                voted_for = data.get("voted_for", "?")
+                message.append(f"{voter} voted for ")
+                message.append(voted_for, style="bold")
+            elif event_type == "VOTE_SUMMARY":
+                eliminated = data.get("eliminated", "?")
+                message.append("Eliminated by day vote: ", style="red")
+                message.append(eliminated, style="bold")
+            elif event_type == "MAFIA_KILL":
+                eliminated = data.get("eliminated", "?")
+                message.append("Eliminated by mafia: ", style="red")
+                message.append(eliminated, style="bold")
+            else:
+                # Fallback for unhandled event types
+                message.append(f"{event_type}: {data}")
+            # --- End building Text object ---
+
+            log_widget.write(message)  # Write the Text object
+        except Exception as e:
+            self.log.error(
+                f"Failed to write event to EventLogWidget: {e} Data: {event_data}"
+            )
+
+    # --- End Event Handling Method ---
+
     def _inject_tournament_hooks(self) -> None:
         """Inject hooks into tournament methods to update the UI"""
         # Store original methods
@@ -558,13 +651,15 @@ class TournamentTUI(App[None]):
         self.tournament.run_round = patched_run_round
         setattr(self.tournament, "_update_ratings", patched_update_ratings)
 
-        # Patch Contest init to pass the callback
+        # Patch Contest init to pass the callbacks
         from contest import Contest
 
         original_contest_init = Contest.__init__
 
         def patched_contest_init(contest_instance: Contest, *args: Any, **kwargs: Any):
+            # Pass BOTH callbacks
             kwargs["progress_callback"] = self.update_game_progress
+            kwargs["event_callback"] = self._handle_game_event  # Pass new event handler
             original_contest_init(contest_instance, *args, **kwargs)
 
         Contest.__init__ = patched_contest_init  # type: ignore

@@ -2,7 +2,7 @@ import datetime
 import json
 from mafia import ContestStats, GameStats, PlayerName
 from rate_limiter import GlobalRateLimiter
-from game import Game, ProgressCallback
+from game import Game, ProgressCallback, EventCallback
 import asyncio
 import time
 
@@ -28,6 +28,7 @@ class Contest:
         limiter_requests_per_second: float = 60.0,
         n_concurrent_games: int = 5,
         progress_callback: Optional[ProgressCallback] = None,
+        event_callback: Optional[EventCallback] = None,
     ):
         self.name = name
         self.n_games = n_games
@@ -40,6 +41,7 @@ class Contest:
         self.limiter_requests_per_second = limiter_requests_per_second
         self.n_concurrent_games = n_concurrent_games
         self.progress_callback = progress_callback
+        self.event_callback = event_callback
         self.start_time = None
         self.end_time = None
 
@@ -68,6 +70,7 @@ class Contest:
                 temperature=self.temperature,
                 game_id=i,
                 progress_callback=self.progress_callback,
+                event_callback=self.event_callback,
             )
             game_tasks.append(game.run())
 
