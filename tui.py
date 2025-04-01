@@ -5,6 +5,7 @@ from textual.containers import Container, Vertical, Grid
 from textual.binding import Binding
 from rich.text import Text
 from typing import Dict, List, Tuple, Any, TypeVar, Optional
+from collections import deque
 
 from tournament import Tournament, GameStats
 # Import ProgressCallback from game, not directly
@@ -335,13 +336,18 @@ class TournamentTUI(App[None]):
     previous_ratings: Dict[str, float] = {}
     # Track total games completed
     total_games_completed_count: int = 0
+    # --- Add deque for event log messages ---
+    event_log_messages: deque[Text]
+    # -------------------------------------
 
-    def __init__(self, tournament: Tournament) -> None:
+    def __init__(self, tournament: Tournament, event_log_max_lines: int = 100) -> None:
         """Initialize the app with a tournament"""
         super().__init__()
         self.tournament = tournament
-        # Store initial ratings as previous
         self.previous_ratings = self.tournament.get_final_ratings().copy()
+        # --- Initialize the deque ---
+        self.event_log_messages = deque(maxlen=event_log_max_lines)
+        # ---------------------------
 
     def compose(self) -> ComposeResult:
         """Create the UI layout"""
@@ -573,22 +579,18 @@ class TournamentTUI(App[None]):
         self.call_later(self._do_handle_game_event, event_data)
 
     def _do_handle_game_event(self, event_data: Dict[str, Any]) -> None:
-        """Safely writes the formatted event to the log from the main thread."""
+        """Safely updates the event log from the main thread, keeping only maxlen lines."""
         try:
-            log_widget = self.query_one(EventLogWidget)
-
+            # --- Build the Text object for the new message (as before) ---
             game_str = (
                 f"[{event_data.get('contest_name')}/G{event_data.get('game_index')}]"
             )
             event_type = event_data.get("event_type", "UNKNOWN")
             data = event_data.get("data", {})
-
-            # --- Build message using rich.text.Text ---
             message = Text()
             message.append(game_str, style="dim")
             message.append(" ")
-
-            # Customize formatting based on event type
+            # (Keep the existing logic for formatting based on event_type)
             if event_type == "SPEECH":
                 player = data.get("player", "?")
                 snippet = data.get("text", "")
@@ -612,11 +614,18 @@ class TournamentTUI(App[None]):
                 message.append("Eliminated by mafia: ", style="red")
                 message.append(eliminated, style="bold")
             else:
-                # Fallback for unhandled event types
                 message.append(f"{event_type}: {data}")
             # --- End building Text object ---
 
-            log_widget.write(message)  # Write the Text object
+            # --- Update deque and redraw log ---
+            self.event_log_messages.append(message)
+
+            log_widget = self.query_one(EventLogWidget)
+            log_widget.clear()
+            for msg in self.event_log_messages:
+                log_widget.write(msg)
+            # --------------------------------
+
         except Exception as e:
             self.log.error(
                 f"Failed to write event to EventLogWidget: {e} Data: {event_data}"

@@ -102,7 +102,7 @@ def main():
     )
 
     # Run the TUI - directly creating and running the app
-    app = TournamentTUI(tournament)
+    app = TournamentTUI(tournament, event_log_max_lines=5)
     app.run()
 
 
