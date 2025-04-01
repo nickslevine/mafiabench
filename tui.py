@@ -4,7 +4,7 @@ from textual.widgets import Header, Footer, Static, DataTable, RichLog
 from textual.containers import Container, Vertical, Grid
 from textual.binding import Binding
 from rich.text import Text
-from typing import Dict, List, Tuple, Any, TypeVar, Optional
+from typing import Dict, List, Tuple, Any, TypeVar, Optional, Literal
 from collections import deque
 
 from tournament import Tournament, GameStats
@@ -13,6 +13,9 @@ from tournament import Tournament, GameStats
 
 # Define types for DataTable generics
 T = TypeVar("T")
+
+# Define a type for our border styles
+BorderStyle = Tuple[Literal["heavy"], str]
 
 
 class TournamentStatus(Static):
@@ -131,8 +134,10 @@ class ELORankingsTable(DataTable[str]):
 class GameWidget(Static):
     """A widget to display an individual game"""
 
-    DEFAULT_BORDER_STYLE = ("heavy", "#666666")
-    HIGHLIGHT_BORDER_STYLE = ("heavy", "yellow")
+    DEFAULT_BORDER_STYLE: BorderStyle = ("heavy", "#666666")
+    HIGHLIGHT_BORDER_STYLE: BorderStyle = ("heavy", "yellow")
+    MAFIA_WIN_BORDER_STYLE: BorderStyle = ("heavy", "red")
+    TOWN_WIN_BORDER_STYLE: BorderStyle = ("heavy", "green")
 
     game_id = reactive("")
     mafia_model = reactive("")
@@ -149,6 +154,20 @@ class GameWidget(Static):
         self.update_content()
         self.styles.padding = (1, 2)
         self.styles.border = self.DEFAULT_BORDER_STYLE
+
+    def set_border_style(self, style: BorderStyle) -> None:
+        """Set the border style directly"""
+        self.styles.border = style
+        self.refresh()
+
+    def _flash_border(self) -> None:
+        """Highlight the border briefly."""
+        self.set_border_style(self.HIGHLIGHT_BORDER_STYLE)
+        self.set_timer(0.5, self._reset_border)
+
+    def _reset_border(self) -> None:
+        """Reset the border to the default style."""
+        self.set_border_style(self.DEFAULT_BORDER_STYLE)
 
     def update_all(
         self,
@@ -196,15 +215,6 @@ class GameWidget(Static):
     def watch_kb_update_text(self, kb_update_text: str) -> None:
         """Update content when knowledge base update text changes"""
         self.update_content()
-
-    def _flash_border(self) -> None:
-        """Highlight the border briefly."""
-        self.styles.border = self.HIGHLIGHT_BORDER_STYLE
-        self.set_timer(0.5, self._reset_border)
-
-    def _reset_border(self) -> None:
-        """Reset the border to the default style."""
-        self.styles.border = self.DEFAULT_BORDER_STYLE
 
     def watch_day_count(self, day_count: int) -> None:
         self.update_content()
@@ -500,10 +510,10 @@ class TournamentTUI(App[None]):
 
             if mafia_alive >= town_alive:
                 winner_text = "Mafia Win!"
-                widget.styles.border = ("heavy", "red")
+                widget.set_border_style(GameWidget.MAFIA_WIN_BORDER_STYLE)
             else:
                 winner_text = "Town Win!"
-                widget.styles.border = ("heavy", "green")
+                widget.set_border_style(GameWidget.TOWN_WIN_BORDER_STYLE)
 
             widget.phase = "Game Over"
             widget.progress_text = winner_text  # Actually set the progress_text
