@@ -509,10 +509,10 @@ class TournamentTUI(App[None]):
             widget.townspeople_alive = town_alive
 
             if mafia_alive >= town_alive:
-                winner_text = "Mafia Win!"
+                winner_text = "🐍  Mafia Win!"
                 widget.set_border_style(GameWidget.MAFIA_WIN_BORDER_STYLE)
             else:
-                winner_text = "Town Win!"
+                winner_text = "🏠  Town Win!"
                 widget.set_border_style(GameWidget.TOWN_WIN_BORDER_STYLE)
 
             widget.phase = "Game Over"
@@ -618,6 +618,15 @@ class TournamentTUI(App[None]):
 
         # Update progress text if not in game over state
         if progress_text is not None:
+            # Add emojis based on the event type
+            if "speaking" in progress_text.lower():
+                progress_text = f"💬 {progress_text}"
+            elif "vote" in progress_text.lower():
+                progress_text = f"⚖️ {progress_text}"
+            elif "eliminated" in progress_text:
+                progress_text = f"🔫 {progress_text}"
+            elif "notes" in progress_text.lower():
+                progress_text = f"📝 {progress_text}"
             widget.progress_text = progress_text
 
     # --- Game Completion Tracking ---
@@ -662,6 +671,7 @@ class TournamentTUI(App[None]):
                 snippet = data.get("text", "")
                 if len(snippet) > 70:
                     snippet = snippet[:67] + "..."
+                message.append("💬 ", style="bold")
                 message.append(player, style="bold")
                 message.append(" said: '")
                 message.append(snippet, style="italic")
@@ -673,12 +683,14 @@ class TournamentTUI(App[None]):
                 message.append(voted_for, style="bold")
             elif event_type == "VOTE_SUMMARY":
                 eliminated = data.get("eliminated", "?")
-                message.append("Eliminated by day vote: ", style="red")
+                message.append("🔫  Eliminated by day vote: ", style="red")
                 message.append(eliminated, style="bold")
             elif event_type == "MAFIA_KILL":
                 eliminated = data.get("eliminated", "?")
-                message.append("Eliminated by mafia: ", style="red")
+                message.append("🔫 Eliminated by mafia: ", style="red")
                 message.append(eliminated, style="bold")
+            elif event_type == "UPDATING_NOTES":
+                message.append("📝 Updating notes...")
             else:
                 message.append(f"{event_type}: {data}")
             # --- End building Text object ---
