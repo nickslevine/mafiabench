@@ -14,3 +14,5 @@ results/
 contest_results/
 
 *.json
+
+.DS_Store

@@ -20,7 +20,9 @@ class TournamentStatus(Static):
 
     current_round = reactive(0)
     total_rounds = reactive(0)
-    total_games_completed = reactive(0)  # New reactive property
+    total_games_completed = reactive(0)  # Total games completed across all rounds
+    round_games_completed = reactive(0)  # Games completed in current round
+    round_total_games = reactive(0)  # Total games expected in current round
 
     def on_mount(self) -> None:
         """Called when widget is added to the app"""
@@ -38,16 +40,35 @@ class TournamentStatus(Static):
         """Called when total_games_completed changes"""
         self.update_content()
 
+    def watch_round_games_completed(self, games: int) -> None:
+        """Called when round_games_completed changes"""
+        self.update_content()
+
+    def watch_round_total_games(self, total: int) -> None:
+        """Called when round_total_games changes"""
+        self.update_content()
+
     def update_content(self) -> None:
         """Update the content of the widget"""
-        self.update(
-            f"Round {self.current_round} of {self.total_rounds} | Games Completed: {self.total_games_completed}"
+        # Calculate progress percentage for the progress bar
+        progress_percent = (
+            (self.round_games_completed / self.round_total_games * 100)
+            if self.round_total_games > 0
+            else 0
         )
-        # Remove style settings, now handled by CSS
-        # self.styles.background = "#2d2d2d"
-        # self.styles.color = "#ffffff"
-        # self.styles.padding = (1, 2)
-        # self.styles.border = ("heavy", "#666666")
+
+        # Create a progress bar using block characters with proper markup
+        filled_blocks = int(progress_percent / 5)  # 20 blocks total = 5% per block
+        empty_blocks = 20 - filled_blocks
+
+        # Create the progress bar segments with proper escaping
+        filled_segment = f"[blue]{'█' * filled_blocks}[/]" if filled_blocks > 0 else ""
+        empty_segment = f"[dim]{'█' * empty_blocks}[/]" if empty_blocks > 0 else ""
+
+        self.update(
+            f"Round {self.current_round} of {self.total_rounds} | Games in Round: {self.round_games_completed}/{self.round_total_games}\n"
+            f"Progress: {filled_segment}{empty_segment} {progress_percent:.1f}%"
+        )
 
 
 class ELORankingsTable(DataTable[str]):
@@ -268,7 +289,7 @@ class TournamentTUI(App[None]):
     }
 
     TournamentStatus {
-        height: 3;
+        height: 4;  /* Increased to accommodate two lines */
         padding: 0 2;
         text-align: center;
         text-style: bold;
@@ -336,6 +357,8 @@ class TournamentTUI(App[None]):
     previous_ratings: Dict[str, float] = {}
     # Track total games completed
     total_games_completed_count: int = 0
+    # Track round-specific games
+    round_games_completed_count: int = 0
     # --- Add deque for event log messages ---
     event_log_messages: deque[Text]
     # -------------------------------------
@@ -355,6 +378,13 @@ class TournamentTUI(App[None]):
 
         tournament_status = TournamentStatus()
         tournament_status.total_rounds = self.tournament.num_rounds
+        # Calculate total games expected per round
+        games_per_contest = self.tournament.games_per_contest
+        num_pairings = (
+            len(self.tournament.model_names) // 2
+        )  # Each round pairs all models
+        total_games_per_round = games_per_contest * num_pairings
+        tournament_status.round_total_games = total_games_per_round
         yield tournament_status
 
         # Main grid
@@ -558,13 +588,15 @@ class TournamentTUI(App[None]):
 
     # --- Game Completion Tracking ---
     def _increment_total_games(self) -> None:
-        """Increment the total games counter and update the status widget."""
+        """Increment both total and round-specific game counters and update the status widget."""
         self.total_games_completed_count += 1
+        self.round_games_completed_count += 1
 
         def update_status():
             try:
                 status_widget = self.query_one(TournamentStatus)
                 status_widget.total_games_completed = self.total_games_completed_count
+                status_widget.round_games_completed = self.round_games_completed_count
             except Exception as e:
                 self.log.error(f"Failed to update TournamentStatus: {e}")
 
@@ -644,6 +676,10 @@ class TournamentTUI(App[None]):
             self.query_one(TournamentStatus).current_round = (
                 self.tournament.current_round + 1
             )
+            # Reset round-specific game counter at the start of each round
+            self.round_games_completed_count = 0
+            self.query_one(TournamentStatus).round_games_completed = 0
+
             self.previous_ratings = self.tournament.get_final_ratings().copy()
             result = await original_run_round(*args, **kwargs)
             await self._clear_active_games()
