@@ -509,10 +509,10 @@ class TournamentTUI(App[None]):
             widget.townspeople_alive = town_alive
 
             if mafia_alive >= town_alive:
-                winner_text = "🐍  Mafia Win!"
+                winner_text = "🐍 Mafia Win!"
                 widget.set_border_style(GameWidget.MAFIA_WIN_BORDER_STYLE)
             else:
-                winner_text = "🏠  Town Win!"
+                winner_text = "🏠 Town Win!"
                 widget.set_border_style(GameWidget.TOWN_WIN_BORDER_STYLE)
 
             widget.phase = "Game Over"
