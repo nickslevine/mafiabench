@@ -111,7 +111,7 @@ class Analysis:
     def elo_history_df(self) -> pd.DataFrame:
         elos = pd.DataFrame(self.elo_history).iloc[1:]
         rankings = elos.rank(axis=1, ascending=False)
-        return rankings
+        return rankings.reset_index(drop=True)
 
     def plot_elo_history(self):
         rankings = self.elo_history_df
