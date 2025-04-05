@@ -6,9 +6,11 @@ from loguru import logger
 import os
 from typing import List
 from openai.types.chat import ChatCompletionMessageParam
+import asyncio
+import httpx
 
 
-def setup_async_openai_api() -> AsyncOpenAI:
+def setup_async_openai_api(timeout: float = 60.0) -> AsyncOpenAI:
     """Set up and return the AsyncOpenAI client configured for OpenRouter."""
     api_key = os.environ.get("OPEN_ROUTER_API_KEY")
     if not api_key:
@@ -20,6 +22,9 @@ def setup_async_openai_api() -> AsyncOpenAI:
     client = AsyncOpenAI(
         api_key=api_key,
         base_url="https://openrouter.ai/api/v1",
+        http_client=httpx.AsyncClient(
+            timeout=timeout,
+        ),  # Set default timeout for all requests
     )
 
     return client
@@ -39,7 +44,7 @@ class Player:
         self.model = model
         self.temperature = temperature
         self.timeout = timeout
-        self.client = setup_async_openai_api()
+        self.client = setup_async_openai_api(timeout=timeout)
         self.alive = True
         self.total_response_time = 0.0
         self.message_count = 0
@@ -85,20 +90,23 @@ class Player:
                     {"role": "user", "content": prompt},
                 ]
 
-                response = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=msgs,
-                    max_tokens=max_tokens,
-                    temperature=self.temperature,
-                    timeout=self.timeout,
-                )
+                # Use asyncio.timeout() to enforce a hard timeout
+                async with asyncio.timeout(self.timeout):
+                    response = await self.client.chat.completions.create(
+                        model=self.model,
+                        messages=msgs,
+                        max_tokens=max_tokens,
+                        temperature=self.temperature,
+                    )
+
                 self.total_response_time += time.time() - start_time
                 self.message_count += 1
                 if len(response.choices) == 0:
                     logger.error(f"Failed response: {response}")
                 content = response.choices[0].message.content
                 return content.strip() if content else ""
-            except APITimeoutError as e:
+
+            except (asyncio.TimeoutError, APITimeoutError) as e:
                 self.timeout_count += 1
                 logger.warning(
                     f"Request timed out after {self.timeout} seconds: {str(e)}"

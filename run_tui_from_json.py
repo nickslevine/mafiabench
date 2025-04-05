@@ -79,6 +79,7 @@ def create_tournament_from_state(
         n_concurrent_games_per_contest=metadata["n_concurrent_games_per_contest"],
         elo_k_factor=metadata["elo_k_factor"],
         elo_initial_rating=metadata["elo_initial_rating"],
+        name=metadata["name"],
     )
 
     # Restore ELO ratings

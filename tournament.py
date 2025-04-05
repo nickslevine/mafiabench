@@ -29,6 +29,7 @@ class Tournament:
 
     def __init__(
         self,
+        name: str,  # Required tournament name
         model_names: List[str],
         player_names: List[PlayerName],
         num_rounds: int,
@@ -46,6 +47,7 @@ class Tournament:
         Initializes the Tournament with ELO rating system.
 
         Args:
+            name (str): Unique name for this tournament instance.
             model_names (List[str]): List of unique names for the participating models.
             player_names (List[PlayerName]): List of names to be used for players in games.
             num_rounds (int): The number of rounds to run in the Swiss tournament.
@@ -68,6 +70,7 @@ class Tournament:
                 f"Not enough player names ({len(player_names)}) for games needing {n_players_per_game}."
             )
 
+        self.name = name
         self.model_names = model_names
         self.player_names = player_names
         self.num_rounds = num_rounds
@@ -79,6 +82,30 @@ class Tournament:
         self.n_concurrent_contests = n_concurrent_contests
         self.n_concurrent_games_per_contest = n_concurrent_games_per_contest
         self.elo_initial_rating = elo_initial_rating
+
+        # Create tournament directory structure
+        self.tournament_start_time = time.time()
+        timestamp = datetime.datetime.fromtimestamp(
+            self.tournament_start_time
+        ).strftime("%Y%m%d_%H%M%S")
+        self.tournament_dir = os.path.join("tournament_results", f"{name}_{timestamp}")
+        self.results_dir = os.path.join(self.tournament_dir, "results")
+        self.intermediate_results_dir = os.path.join(
+            self.tournament_dir, "intermediate_results"
+        )
+        self.logs_dir = os.path.join(self.tournament_dir, "logs")
+        self.final_dir = os.path.join(self.tournament_dir, "final")
+
+        # Create directories
+        for directory in [
+            os.path.dirname(self.tournament_dir),
+            self.tournament_dir,
+            self.results_dir,
+            self.intermediate_results_dir,
+            self.logs_dir,
+            self.final_dir,
+        ]:
+            os.makedirs(directory, exist_ok=True)
 
         # ELO setup
         self.elo_system = ELOSystem(model_names, elo_k_factor, self.elo_initial_rating)
@@ -104,7 +131,6 @@ class Tournament:
         ] = []  # Store {rank_corr} per round
         self.completed_contests_data: List[Dict[str, Any]] = []
         # --- Initialize time attributes ---
-        self.tournament_start_time: Optional[float] = None
         self.tournament_end_time: Optional[float] = None
         # ----------------------------------
 
@@ -220,6 +246,7 @@ class Tournament:
                 temperature=self.temperature,
                 limiter_requests_per_second=self.limiter_requests_per_second,
                 n_concurrent_games=self.n_concurrent_games_per_contest,
+                tournament_dir=self.tournament_dir,  # Pass tournament directory
                 # progress/event callbacks are injected by TUI if running TUI
             )
             contest_tasks.append(
@@ -376,9 +403,8 @@ class Tournament:
         Runs the full tournament for the specified number of rounds using ELO.
         """
         logger.info(
-            f"Starting ELO tournament with {len(self.model_names)} models for {self.num_rounds} rounds."
+            f"Starting ELO tournament '{self.name}' with {len(self.model_names)} models for {self.num_rounds} rounds."
         )
-        start_time = time.time()
 
         # Initial ratings log
         logger.info("--- Initial Ratings --- ")
@@ -393,19 +419,26 @@ class Tournament:
         for i in range(self.num_rounds):
             round_results = await self.run_round()
             self._update_ratings(round_results)  # Updates ratings and logs stability
-            output_filename = f"intermediate_tournament_results_round_{i}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            output_filename = os.path.join(
+                self.intermediate_results_dir,
+                f"round_{i + 1}_results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            )
             self.serialize_results(output_filename)
-            # Logger info now happens inside _update_ratings
 
-        end_time = time.time()
-        logger.info(f"Tournament finished in {end_time - start_time:.2f} seconds.")
+        self.tournament_end_time = time.time()
+        logger.info(
+            f"Tournament finished in {self.tournament_end_time - self.tournament_start_time:.2f} seconds."
+        )
         logger.info("--- Final Rankings (ELO) --- ")
         final_rankings = self._get_model_ratings_sorted()
         for i, (name, rating) in enumerate(final_rankings):
             logger.info(f"  {i + 1}. {name}: Rating={rating:.2f}")
 
         # --- Serialize final results ---
-        output_filename = f"tournament_results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        output_filename = os.path.join(
+            self.final_dir,
+            f"final_results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+        )
         self.serialize_results(output_filename)
         logger.info(f"Full tournament results saved to {output_filename}")
         # -----------------------------
@@ -464,6 +497,7 @@ class Tournament:
                 "n_concurrent_games_per_contest": self.n_concurrent_games_per_contest,
                 "elo_k_factor": self.elo_system.k_factor,
                 "elo_initial_rating": initial_rating,
+                "name": self.name,
             },
             "final_elo_ratings": self.elo_system.get_all_ratings(),
             "elo_rating_history_by_round": self.rating_history,
@@ -503,6 +537,7 @@ async def main() -> None:
     ]  # Need at least n_players_per_game
 
     tournament = Tournament(
+        name="TestTournament",
         model_names=models,
         player_names=[PlayerName(name) for name in player_names_list],
         num_rounds=2,  # Adjust as needed

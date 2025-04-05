@@ -12,6 +12,12 @@ def main():
 
     # Tournament options
     parser.add_argument(
+        "--name",
+        type=str,
+        required=True,
+        help="Name of the tournament",
+    )
+    parser.add_argument(
         "--models",
         nargs="+",
         required=True,
@@ -89,6 +95,7 @@ def main():
 
     # Create the tournament
     tournament = Tournament(
+        name=args.name,
         model_names=args.models,
         player_names=[PlayerName(name) for name in player_names_list],
         num_rounds=args.rounds,

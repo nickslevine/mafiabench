@@ -29,7 +29,25 @@ class Contest:
         n_concurrent_games: int = 5,
         progress_callback: Optional[ProgressCallback] = None,
         event_callback: Optional[EventCallback] = None,
+        tournament_dir: Optional[str] = None,
     ):
+        """Initialize a new contest instance.
+
+        Args:
+            name (str): Name of the contest
+            n_games (int): Number of games to run
+            n_players (int): Number of players per game
+            n_mafia (int): Number of mafia roles per game
+            player_names (List[PlayerName]): List of player names to use
+            model_a (str): First model to use
+            model_b (Optional[str]): Second model to use, defaults to model_a if None
+            temperature (float): Temperature for model generation
+            limiter_requests_per_second (float): Rate limit for API calls
+            n_concurrent_games (int): Maximum number of concurrent games
+            progress_callback (Optional[ProgressCallback]): Callback for progress updates
+            event_callback (Optional[EventCallback]): Callback for game events
+            tournament_dir (Optional[str]): Directory for tournament results
+        """
         self.name = name
         self.n_games = n_games
         self.n_players = n_players
@@ -42,6 +60,7 @@ class Contest:
         self.n_concurrent_games = n_concurrent_games
         self.progress_callback = progress_callback
         self.event_callback = event_callback
+        self.tournament_dir = tournament_dir
         self.start_time = None
         self.end_time = None
 
@@ -71,11 +90,9 @@ class Contest:
                 game_id=i,
                 progress_callback=self.progress_callback,
                 event_callback=self.event_callback,
+                tournament_dir=self.tournament_dir,
             )
             game_tasks.append(game.run())
-
-            # We'll use a semaphore to limit concurrent games
-            # Continue collecting all game tasks, but we'll control execution with the semaphore
 
         # Create a semaphore to limit concurrent games
         semaphore = asyncio.Semaphore(self.n_concurrent_games)
@@ -105,12 +122,14 @@ class Contest:
         return contest_summary_stats, individual_game_stats
 
     def serialize(self, stats: ContestStats):
-        os.makedirs("contest_results", exist_ok=True)
+        if self.tournament_dir:
+            # Use tournament's results directory
+            results_dir = os.path.join(self.tournament_dir, "results")
+            os.makedirs(results_dir, exist_ok=True)
 
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"contest_{self.name}_{self.model_a.replace('/', '_')}_{self.model_b.replace('/', '_')}_{self.n_players}_{self.n_mafia}_{timestamp}.json"
+            filepath = os.path.join(results_dir, filename)
 
-        with open(
-            f"contest_results/{self.name}_{self.model_a.replace('/', '_')}_{self.model_b.replace('/', '_')}_{self.n_players}_{self.n_mafia}_{timestamp}.json",
-            "w",
-        ) as f:
-            json.dump(stats.summary(), f)
+            with open(filepath, "w") as f:
+                json.dump(stats.summary(), f)

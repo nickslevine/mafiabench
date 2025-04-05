@@ -9,9 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
-logs/
-results/
-contest_results/
+# Tournament results
+tournament_results/
 
 *.json
 

@@ -21,7 +21,6 @@ import os
 import json
 import prompts
 from typing import Callable, Optional, List, Any, Coroutine, Dict
-
 from rate_limiter import GlobalRateLimiter
 
 # Define the type for the progress callback
@@ -45,6 +44,7 @@ class Game:
         verbose: bool = False,
         progress_callback: Optional[ProgressCallback] = None,
         event_callback: Optional[EventCallback] = None,  # Add event_callback parameter
+        tournament_dir: Optional[str] = None,  # Add tournament_dir parameter
     ):
         if len(player_names) < n_players:
             raise ValueError(
@@ -70,6 +70,7 @@ class Game:
         self.progress_callback = progress_callback
         self.event_callback = event_callback  # Store event_callback
         self.game_over_reported = False  # Add flag to track if game over was reported
+        self.tournament_dir = tournament_dir
 
         self.start_time = None
         self.end_time = None
@@ -716,24 +717,23 @@ class Game:
         )
 
     def serialize(self, stats: GameStats):
-        os.makedirs("results", exist_ok=True)
-        os.makedirs("logs", exist_ok=True)
+        if self.tournament_dir:
+            # Use tournament's directory structure
+            results_dir = os.path.join(self.tournament_dir, "results")
+            logs_dir = os.path.join(self.tournament_dir, "logs")
+            os.makedirs(results_dir, exist_ok=True)
+            os.makedirs(logs_dir, exist_ok=True)
 
-        # print(f"Game over. Results: {stats.to_dict()}")
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            base_filename = f"game_{self.contest_name}_{self.model_mafia.replace('/', '_')}_{self.model_townsperson.replace('/', '_')}_{self.n_players}_{self.n_mafia}_{timestamp}_{self.game_id}"
 
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Save game results
+            with open(os.path.join(results_dir, f"{base_filename}.json"), "w") as f:
+                json.dump(stats.to_dict(), f)
 
-        with open(
-            f"results/{self.model_mafia.replace('/', '_')}_{self.model_townsperson.replace('/', '_')}_{self.n_players}_{self.n_mafia}_{timestamp}_{self.game_id}.json",
-            "w",
-        ) as f:
-            json.dump(stats.to_dict(), f)
-
-        with open(
-            f"logs/{self.model_mafia.replace('/', '_')}_{self.model_townsperson.replace('/', '_')}_{self.n_players}_{self.n_mafia}_{timestamp}_{self.game_id}.json",
-            "w",
-        ) as f:
-            json.dump(self.event_log.to_dict(), f)
+            # Save game logs
+            with open(os.path.join(logs_dir, f"{base_filename}_log.json"), "w") as f:
+                json.dump(self.event_log.to_dict(), f)
 
     async def game_over(self) -> GameStats:
         """Handle game completion and return final stats."""
