@@ -11,7 +11,10 @@ dependencies = [
     "numpy>=2.2.4",
     "openai>=1.68.2",
     "pandas>=2.2.3",
+    "plotly>=6.0.1",
+    "plotly-stubs>=0.0.5",
     "scipy>=1.15.2",
+    "streamlit>=1.44.1",
     "textual>=3.0.0",
 ]
 
