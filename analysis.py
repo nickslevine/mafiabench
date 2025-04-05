@@ -1,6 +1,7 @@
 import json
 from typing import Dict, Any
 import pandas as pd
+import matplotlib.pyplot as plt
 
 
 # Load the tournament results from the JSON file
@@ -83,6 +84,9 @@ class Analysis:
                 stats[model_mafia]["invalid_votes"] += game.get(
                     "mafia_invalid_votes", 0
                 )
+                # stats[model_mafia]["timeout_count"] += game.get(
+                #     "mafia_timeout_count", 0
+                # )
 
                 # Update statistics for the townsperson model
                 stats[model_townsperson]["time"] += game.get(
@@ -94,8 +98,25 @@ class Analysis:
                 stats[model_townsperson]["invalid_votes"] += game.get(
                     "townsperson_invalid_votes", 0
                 )
+                # stats[model_townsperson]["timeout_count"] += game.get(
+                #     "townsperson_timeout_count", 0
+                # )
 
         stats = pd.DataFrame(stats).transpose()  # type: ignore
         stats["latency"] = stats["time"] / stats["messages"]  # type: ignore
         stats = stats.round(1)  # type: ignore
         return stats
+
+    @property
+    def elo_history_df(self) -> pd.DataFrame:
+        elos = pd.DataFrame(self.elo_history).iloc[1:]
+        rankings = elos.rank(axis=1, ascending=False)
+        return rankings
+
+    def plot_elo_history(self):
+        rankings = self.elo_history_df
+        ax = rankings.plot(marker="o")
+        plt.grid()
+        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+        ax.invert_yaxis()
+        plt.title("ELO Ranking By Tournament Round")

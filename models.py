@@ -5,6 +5,7 @@ MODELS_CHEAP = [
     "qwen/qwen-2.5-7b-instruct",
     "mistralai/mistral-7b-instruct",
     "google/gemma-2-9b-it",
+    "google/gemma-3-4b-it",
     "mistralai/mistral-nemo",
     "google/gemini-flash-1.5-8b",
     "deepseek/deepseek-r1-distill-llama-8b",
@@ -15,4 +16,15 @@ MODELS_CHEAP = [
     "qwen/qwq-32b",
     "qwen/qwen-2.5-72b-instruct",
     "gpt-4o-mini",
+]
+
+MODELS_STANDARD = [
+    "google/gemini-2.0-flash-001",
+    "google/gemini-pro-1.5",
+    "anthropic/claude-3.5-haiku",
+    "anthropic/claude-3.5-sonnet",
+    "anthropic/claude-3.7-sonnet",
+    "openai/gpt-4o-mini",
+    "openai/chatgpt-4o-latest",
+    "deepseek/deepseek-chat-v3-0324",
 ]

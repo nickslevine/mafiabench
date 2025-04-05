@@ -127,6 +127,8 @@ class GameStats:
     n_mafia: int
     game_duration: float
     game_rounds: int
+    mafia_timeout_count: int
+    townsperson_timeout_count: int
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert GameStats to a dictionary suitable for JSON serialization."""

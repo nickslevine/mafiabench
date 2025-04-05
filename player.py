@@ -1,5 +1,5 @@
 from mafia import PlayerName, Role
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APITimeoutError
 from rate_limiter import GlobalRateLimiter
 import time
 from loguru import logger
@@ -27,17 +27,24 @@ def setup_async_openai_api() -> AsyncOpenAI:
 
 class Player:
     def __init__(
-        self, name: PlayerName, role: Role, model: str, temperature: float = 0.7
+        self,
+        name: PlayerName,
+        role: Role,
+        model: str,
+        temperature: float = 0.7,
+        timeout: float = 30.0,
     ):
         self.name: PlayerName = name
         self.role = role
         self.model = model
         self.temperature = temperature
+        self.timeout = timeout
         self.client = setup_async_openai_api()
         self.alive = True
         self.total_response_time = 0.0
         self.message_count = 0
         self.invalid_response_count = 0
+        self.timeout_count = 0
         self.knowledge_base = ""
 
     def __str__(self) -> str:
@@ -83,6 +90,7 @@ class Player:
                     messages=msgs,
                     max_tokens=max_tokens,
                     temperature=self.temperature,
+                    timeout=self.timeout,
                 )
                 self.total_response_time += time.time() - start_time
                 self.message_count += 1
@@ -90,6 +98,17 @@ class Player:
                     logger.error(f"Failed response: {response}")
                 content = response.choices[0].message.content
                 return content.strip() if content else ""
+            except APITimeoutError as e:
+                self.timeout_count += 1
+                logger.warning(
+                    f"Request timed out after {self.timeout} seconds: {str(e)}"
+                )
+                attempts += 1
+                if attempts == retry_count:
+                    logger.error(
+                        "Max retries reached due to timeouts. Returning generic response."
+                    )
+                    return "I pass my turn."
             except Exception as e:
                 logger.error(f"API call failed: {str(e)}")
                 attempts += 1

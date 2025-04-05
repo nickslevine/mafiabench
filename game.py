@@ -679,6 +679,16 @@ class Game:
                 for player in self.players.values()
                 if player.role == Role.TOWNSPERSON
             ),
+            mafia_timeout_count=sum(
+                player.timeout_count
+                for player in self.players.values()
+                if player.role == Role.MAFIA
+            ),
+            townsperson_timeout_count=sum(
+                player.timeout_count
+                for player in self.players.values()
+                if player.role == Role.TOWNSPERSON
+            ),
             mafia_total_time=sum(
                 player.total_response_time
                 for player in self.players.values()
