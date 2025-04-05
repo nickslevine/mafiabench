@@ -390,9 +390,11 @@ class Tournament:
         # Store initial state as "previous" for first correlation calculation
         self.previous_rankings = [name for name, _ in initial_ratings]
 
-        for _ in range(self.num_rounds):
+        for i in range(self.num_rounds):
             round_results = await self.run_round()
             self._update_ratings(round_results)  # Updates ratings and logs stability
+            output_filename = f"intermediate_tournament_results_round_{i}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            self.serialize_results(output_filename)
             # Logger info now happens inside _update_ratings
 
         end_time = time.time()

@@ -127,15 +127,47 @@ class ELOSystem:
 
     def record_batch_games(self, game_results: List[Tuple[str, str, float]]):
         """
-        Records a batch of game outcomes and updates ratings.
-        Note: Ratings are updated sequentially based on the order of results in the list.
+        Records a batch of game outcomes and updates ratings synchronously.
+        All rating changes are calculated using ratings from the start of the round,
+        then applied simultaneously.
 
         Args:
             game_results (List[Tuple[str, str, float]]): A list of tuples, where each tuple
                 represents a game: (model_a_name, model_b_name, score_for_model_a).
         """
+        # Store initial ratings for all models at start of round
+        initial_ratings = self.ratings.copy()
+
+        # Calculate all rating changes first
+        rating_changes: Dict[str, float] = {model: 0.0 for model in self.ratings}
+
         for model_a, model_b, score_a in game_results:
-            self.record_game(model_a, model_b, score_a)
+            if model_a not in initial_ratings or model_b not in initial_ratings:
+                raise KeyError(
+                    f"Model name not found: {model_a if model_a not in initial_ratings else model_b}"
+                )
+            if score_a not in [0.0, 0.5, 1.0]:
+                raise ValueError("score_a must be 0 (loss), 0.5 (draw), or 1 (win).")
+
+            score_b = 1.0 - score_a
+
+            # Calculate expected scores using initial ratings
+            expected_a = calculate_expected_score(
+                initial_ratings[model_a], initial_ratings[model_b]
+            )
+            expected_b = 1.0 - expected_a
+
+            # Calculate rating changes for both models
+            change_a = self.k_factor * (score_a - expected_a)
+            change_b = self.k_factor * (score_b - expected_b)
+
+            # Accumulate changes
+            rating_changes[model_a] += change_a
+            rating_changes[model_b] += change_b
+
+        # Apply all changes simultaneously
+        for model, change in rating_changes.items():
+            self.ratings[model] = initial_ratings[model] + change
 
 
 # --- Example Usage ---

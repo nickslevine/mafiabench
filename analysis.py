@@ -116,7 +116,7 @@ class Analysis:
     def plot_elo_history(self):
         rankings = self.elo_history_df
         ax = rankings.plot(marker="o")
-        plt.grid()
-        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-        ax.invert_yaxis()
-        plt.title("ELO Ranking By Tournament Round")
+        plt.grid()  # type: ignore
+        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")  # type: ignore
+        ax.invert_yaxis()  # type: ignore
+        plt.title("ELO Ranking By Tournament Round")  # type: ignore

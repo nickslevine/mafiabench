@@ -114,8 +114,8 @@ class ELORankingsTable(DataTable[str]):
 
             # Truncate model name if it's too long
             display_name = model_name
-            if len(model_name) > 25:
-                display_name = model_name[:22] + "..."
+            if len(model_name) > 50:
+                display_name = model_name[:47] + "..."
 
             # Construct the styled rating string conditionally
             styled_rating = f"{rating:.1f}"
@@ -237,10 +237,10 @@ class GameWidget(Static):
         # Truncate model names if needed
         mafia_display = self.mafia_model
         town_display = self.town_model
-        if len(mafia_display) > 20:
-            mafia_display = mafia_display[:17] + "..."
-        if len(town_display) > 20:
-            town_display = town_display[:17] + "..."
+        if len(mafia_display) > 50:
+            mafia_display = mafia_display[:47] + "..."
+        if len(town_display) > 50:
+            town_display = town_display[:47] + "..."
 
         # Format the status line without duplicating the progress text
         status_line = ""
