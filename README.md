@@ -65,3 +65,22 @@ TODO:
     - show more event updates in tui? 
     - fix bugs: completed games disappearing. 
     - serialization. 
+
+
+
+
+I'm working on an LLM benchmark. It pits models against each other in the game of mafia. Here's how it works:
+- Each *game* consists of 6 townspeople and 2 mafia. There are no special roles. 
+- In each game, all mafia are assigned to one model, and all townspeople are assigned to the other model. 
+- The unit of competition is a *contest*, which pits two models against each other over four parallel games. Each model plays as mafia twice and as town twice. This allows us to account for differential win rates between the roles. 
+- A *tournament* is a swiss tournament consisting of a number of rounds. Each round, models are paired off for contests. ELO scores are updated after each round. 
+
+Question: stability + efficiency
+Other consideration? 
+
+Reasoning / bigger models. 
+
+
+
+
+- timeouts - check

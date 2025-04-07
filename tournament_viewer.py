@@ -312,7 +312,6 @@ def display_game_log(tournament_dir: str, selected_game: pd.Series) -> None:
     current_phase = None
 
     for event in events:
-        print(event["event_type"])
         event_type = event["event_type"]
         day = event.get("day_count", 0)
         phase = event.get("phase")
