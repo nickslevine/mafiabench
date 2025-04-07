@@ -304,6 +304,9 @@ def display_game_log(tournament_dir: str, selected_game: pd.Series) -> None:
         st.error("Game log not found")
         return
 
+    # Track player information
+    player_info: Dict[str, Dict[str, str]] = {}
+
     # Display events in a structured way
     events = game_log
 
@@ -315,6 +318,13 @@ def display_game_log(tournament_dir: str, selected_game: pd.Series) -> None:
         event_type = event["event_type"]
         day = event.get("day_count", 0)
         phase = event.get("phase")
+
+        # Track player information from define_player events
+        if event_type == "define_player":
+            player_info[event["player"]] = {
+                "role": event["role"],
+                "model": event["model"],
+            }
 
         # Start new day/phase section if needed
         if day != current_day or phase != current_phase:
@@ -328,12 +338,23 @@ def display_game_log(tournament_dir: str, selected_game: pd.Series) -> None:
             "day_statement",
             "night_statement",
         ]:
+            player = event["player"]
+            player_details = player_info.get(player, {})
+            model_name = player_details.get("model", "Unknown Model")
+            role = player_details.get("role", "Unknown Role")
+
+            # Format model name to be more concise
+            model_display = (
+                model_name.split("/")[-1] if "/" in model_name else model_name
+            )
+
             with st.container():
                 st.markdown(
                     f"""
                     <div style="border:1px solid #ccc; border-radius:5px; padding:10px; margin:5px 0; background-color:white;">
                         <div style="margin-bottom:5px;">
-                            <span style="color:#1f1f1f; font-size:0.9em;">🗣️ <strong>{event["player"]}</strong></span>
+                            <span style="color:#1f1f1f; font-size:0.9em;">🗣️ <strong>{player}</strong></span>
+                            <span style="color:#666; font-size:0.8em;"> • {role} • {model_display}</span>
                         </div>
                         <div style="background-color:#f0f2f6; border-radius:3px; padding:10px; color:#1f1f1f;">
                             {event["statement"]}
@@ -343,25 +364,36 @@ def display_game_log(tournament_dir: str, selected_game: pd.Series) -> None:
                     unsafe_allow_html=True,
                 )
         elif event_type.lower() == "day_vote_summary":
+            # Build vote lines HTML
+            vote_lines = []
+            for voter, vote in event["votes"].items():
+                voter_details = player_info.get(voter, {})
+                voter_role = voter_details.get("role", "Unknown Role")
+                voted_details = player_info.get(vote, {})
+                voted_role = voted_details.get("role", "Unknown Role")
+                vote_lines.append(
+                    f"• <strong>{voter}</strong> ({voter_role}) voted for <strong>{vote}</strong> ({voted_role})"
+                )
+
+            eliminated_player = event["eliminated_player"]
+            eliminated_details = player_info.get(eliminated_player, {})
+            eliminated_role = eliminated_details.get("role", "Unknown Role")
+
             with st.container():
                 st.markdown(
-                    """
-                    <div style="border:1px solid #ddd; border-radius:5px; padding:10px; margin:10px 0; background-color:white;">
+                    f"""
+                    <div style="border:1px solid #ccc; border-radius:5px; padding:10px; margin:5px 0; background-color:white;">
                         <div style="margin-bottom:5px;">
                             <span style="color:#1f1f1f; font-size:0.9em;">📊 <strong>Vote Summary</strong></span>
                         </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-                for voter, vote in event["votes"].items():
-                    st.markdown(f"- **{voter}** voted for **{vote}**")
-                st.markdown(
-                    f"""
+                        <div style="background-color:#f0f2f6; border-radius:3px; padding:10px; color:#1f1f1f;">
+                            {"<br>".join(vote_lines)}
+                        </div>
                         <div style="margin-top:10px;">
-                            <span style="color:#d73027; font-weight:bold;">🚫 Eliminated: {event["eliminated_player"]}</span>
+                            <span style="color:#d73027; font-weight:bold;">🚫 Eliminated: {eliminated_player} ({eliminated_role})</span>
                         </div>
                     </div>
-                """,
+                    """,
                     unsafe_allow_html=True,
                 )
         elif event_type.lower() == "mafia_kill":

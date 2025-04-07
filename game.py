@@ -14,6 +14,7 @@ from mafia import (
     StatementEvent,
     VoteSummaryEvent,
     GameStats,
+    DefinePlayerEvent,
 )
 from player import Player
 import random
@@ -112,6 +113,15 @@ class Game:
             else:
                 model = self.model_townsperson
             self.players[name] = Player(name, role, model, self.temperature)
+            evt = DefinePlayerEvent(
+                event_type=EventType.DEFINE_PLAYER,
+                phase=Phase.INTRO,
+                day_count=0,
+                player=name,
+                role=role,
+                model=model,
+            )
+            self.event_log.add(evt)
 
         # print(self.players)
 
@@ -502,6 +512,14 @@ class Game:
         ]
         eliminated_player = random.choice(tied_choices)
         logger.info(f"Eliminated player: {eliminated_player}")
+        evt = VoteSummaryEvent(
+            event_type=EventType.DAY_VOTE_SUMMARY,
+            votes=votes,
+            eliminated_player=eliminated_player,
+            phase=Phase.DAY,
+            day_count=self.day_count,
+        )
+        self.event_log.add(evt)
         self.players[eliminated_player].alive = False
 
         # --- Report Day Elimination Event ---
@@ -513,15 +531,6 @@ class Game:
             logger.info("Game over detected after day vote elimination")
             self._report_game_over()
             return
-
-        evt = VoteSummaryEvent(
-            event_type=EventType.DAY_VOTE_SUMMARY,
-            votes=votes,
-            eliminated_player=eliminated_player,
-            phase=Phase.DAY,
-            day_count=self.day_count,
-        )
-        self.event_log.add(evt)
 
         await self.update_knowledge_bases(Phase.DAY, str(evt))
 
@@ -641,6 +650,15 @@ class Game:
             choice for choice, vote_count in top_votes if vote_count == max_votes
         ]
         eliminated_player = random.choice(tied_choices)
+
+        evt = MafiaKillEvent(
+            event_type=EventType.MAFIA_KILL,
+            eliminated_player=eliminated_player,
+            phase=Phase.NIGHT,
+            day_count=self.day_count,
+        )
+        self.event_log.add(evt)
+
         logger.info(f"Eliminated player: {eliminated_player}")
         self.players[eliminated_player].alive = False
 
@@ -653,14 +671,6 @@ class Game:
             logger.info("Game over detected after night vote elimination")
             self._report_game_over()
             return
-
-        evt = MafiaKillEvent(
-            event_type=EventType.MAFIA_KILL,
-            eliminated_player=eliminated_player,
-            phase=Phase.NIGHT,
-            day_count=self.day_count,
-        )
-        self.event_log.add(evt)
 
         await self.update_knowledge_bases(Phase.DAY, str(evt))
 

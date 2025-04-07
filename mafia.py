@@ -40,6 +40,7 @@ class EventType(Enum):
     NIGHT_STATEMENT = "night_statement"
     DAY_VOTE_SUMMARY = "day_vote_summary"
     MAFIA_KILL = "mafia_kill"
+    DEFINE_PLAYER = "define_player"
 
 
 @dataclass
@@ -54,6 +55,24 @@ class BaseEvent:
             "phase": str(self.phase),
             "day_count": self.day_count,
         }
+
+
+@dataclass
+class DefinePlayerEvent(BaseEvent):
+    player: PlayerName
+    role: Role
+    model: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        base_dict = super().to_dict()
+        base_dict.update(
+            {
+                "player": self.player,
+                "role": self.role.value,
+                "model": self.model,
+            }
+        )
+        return base_dict
 
 
 @dataclass
