@@ -2,10 +2,12 @@
 
 import asyncio
 import time
-from typing import Optional
-import logging
+from typing import Optional, List, Tuple
 
-logger = logging.getLogger(__name__)
+# import logging
+from loguru import logger
+
+# logger = logging.getLogger(__name__)
 
 
 class GlobalRateLimiter:
@@ -29,7 +31,9 @@ class GlobalRateLimiter:
         self._last_log_time = time.time()
 
         # Rolling window stats tracking
-        self._request_history = []  # List of (timestamp, wait_time) tuples
+        self._request_history: List[
+            Tuple[float, float]
+        ] = []  # Explicitly type the list
         self._window_size = 10.0  # Keep 10 seconds of history
 
     @classmethod
@@ -97,12 +101,12 @@ class GlobalRateLimiter:
                     f"  Avg Wait Time: {avg_wait:.2f}s per limited request\n"
                     f"  Current RPS: {self.requests_per_second}"
                 )
-            else:
-                logger.warning(
-                    f"Rate Limiting Stats (last {self._window_size:.1f}s):\n"
-                    f"  Requests per second: {total_requests / 10.0}\n"
-                    f"  Current RPS: {self.requests_per_second}"
-                )
+            # else:
+            #     logger.warning(
+            #         f"Rate Limiting Stats (last {self._window_size:.1f}s):\n"
+            #         f"  Requests per second: {total_requests / 10.0}\n"
+            #         f"  Current RPS: {self.requests_per_second}"
+            #     )
             self._last_log_time = current_time
 
     async def acquire(self) -> None:

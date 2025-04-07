@@ -1,4 +1,5 @@
-from typing import List, Optional
+from typing import List
+from mafia import PlayerName
 
 # Remember that you can use your body and face to express yourself. Put your actions between asterisks to do this. For example, '*nods*', '*smirks*', etc..
 
@@ -9,7 +10,7 @@ You are {name}, a townsperson trying to identify mafia members.
 """
 
 
-def get_mafia_role_prompt(name: str, mafia_names: List[str]) -> str:
+def get_mafia_role_prompt(name: str, mafia_names: List[PlayerName]) -> str:
     return f"""
 You are {name}, a mafia member pretending to be a townsperson. 
 The names of all the mafia members, including you, are: {mafia_names}.
@@ -17,7 +18,10 @@ The names of all the mafia members, including you, are: {mafia_names}.
 
 
 def get_intro_phase_prompt(
-    role_prompt: str, player_names: List[str], current_messages: str, player_name: str
+    role_prompt: str,
+    player_names: List[PlayerName],
+    current_messages: str,
+    player_name: str,
 ) -> str:
     return f"""
 {role_prompt}
@@ -32,8 +36,8 @@ Make a compelling case for who you are, and why you should be trusted and are no
 
 def get_day_vote_phase_prompt(
     role_prompt: str,
-    alive_players: List[str],
-    eliminated_players: List[str],
+    alive_players: List[PlayerName],
+    eliminated_players: List[PlayerName],
     knowledge_base: str,
     player_name: str,
 ) -> str:
@@ -51,9 +55,9 @@ Please respond with ONLY the name of the player you want to eliminate. You MAY N
 
 def get_day_discussion_phase_prompt(
     role_prompt: str,
-    player_names: List[str],
-    alive_players: List[str],
-    eliminated_players: List[str],
+    player_names: List[PlayerName],
+    alive_players: List[PlayerName],
+    eliminated_players: List[PlayerName],
     knowledge_base: str,
     current_discussion: str,
     day_count: int,
@@ -76,10 +80,10 @@ Remember that you are {player_name}. Focus on game strategy.
 
 def get_night_discussion_phase_prompt(
     player_name: str,
-    fellow_mafia: List[str],
-    alive_players: List[str],
-    eliminated_players: List[str],
-    eliminated_mafia: List[str],
+    fellow_mafia: List[PlayerName],
+    alive_players: List[PlayerName],
+    eliminated_players: List[PlayerName],
+    eliminated_mafia: List[PlayerName],
     knowledge_base: str,
     current_messages: str,
 ) -> str:
@@ -99,10 +103,10 @@ You can only eliminate non-mafia players.
 
 def get_night_vote_phase_prompt(
     player_name: str,
-    fellow_mafia: List[str],
-    alive_players: List[str],
-    eliminated_players: List[str],
-    eliminated_mafia: List[str],
+    fellow_mafia: List[PlayerName],
+    alive_players: List[PlayerName],
+    eliminated_players: List[PlayerName],
+    eliminated_mafia: List[PlayerName],
     knowledge_base: str,
     night_count: int,
 ) -> str:
@@ -126,7 +130,7 @@ def get_summary_prompt(
     day_count: int,
     phase_transcript: str,
     knowledge_base: str,
-    fellow_mafia: List[str],
+    fellow_mafia: List[PlayerName],
 ) -> str:
     prompt = f"""
     You are {player_name}, a {role} in the game. 

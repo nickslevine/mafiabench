@@ -9,5 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
-logs/
-results/
+# Tournament results
+tournament_results/
+
+*.json
+
+.DS_Store
